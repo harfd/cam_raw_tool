@@ -1,0 +1,5 @@
+Model: NVIDIA SegFormer B0 / ADE20K
+Source: https://huggingface.co/nvidia/segformer-b0-finetuned-ade-512-512/resolve/6700676d80f989a1e7096fd6d89e88e9b9ca61ce/
+ONNX SHA256: 341333427d74b95391227b7d5935c1854094f7c4b7cc0d144dc6720735dba3bd
+The model retains the NVIDIA Source Code License for SegFormer.
+Research and evaluation use only; see LICENSE.txt.

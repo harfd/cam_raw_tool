@@ -1,0 +1,31 @@
+{
+  "name": "ai-raw-studio",
+  "private": true,
+  "version": "0.5.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "frontend:dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "build": "tsc -b && vite build",
+    "test:ui": "playwright test",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-backend.ps1 && tauri build --no-bundle && .venv\\Scripts\\python.exe scripts/package-portable.py",
+    "desktop:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-backend.ps1 && tauri build --bundles nsis"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "lucide-react": "^0.468.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "@playwright/test": "^1.51.0",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.0"
+  }
+}

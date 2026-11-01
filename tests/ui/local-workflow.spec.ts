@@ -1,0 +1,37 @@
+import {test,expect} from '@playwright/test';
+import path from 'node:path';
+
+test('真实本地分割、画笔修正、局部参数与蒙版导出',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');
+ await page.getByRole('button',{name:'导入 NEF 照片'}).click();
+ await page.getByLabel('NEF 文件').setInputFiles(path.resolve('DSC_0002.NEF'));
+ await page.getByRole('button',{name:'导入并分析原片'}).click();
+ await expect(page.getByAltText('原始解码预览')).toBeVisible({timeout:40000});
+ await page.getByRole('button',{name:'识别本地选区'}).click();
+ await expect(page.locator('.region-tabs')).toContainText('人物',{timeout:30000});
+ await expect(page.locator('.region-tabs')).toContainText('天空');
+ await page.locator('#local-exposure').fill('0.75');
+  await page.locator('#local-whites').fill('-20');
+  await page.locator('#local-texture').fill('10');
+ const saved=page.waitForResponse(r=>r.url().includes('/regions/')&&r.request().method()==='PUT');
+ await page.getByRole('button',{name:'应用局部调整',exact:true}).click();
+ const response=await saved;expect(response.ok()).toBeTruthy();
+ const region=(await response.json()).regions.find((item:any)=>item.kind==='subject');
+ expect(region.adjustments.whites).toBe(-20);expect(region.adjustments.texture).toBe(10);
+ await expect(page.getByText('手动局部调整。',{exact:false})).toBeVisible();
+ const canvas=page.getByLabel('局部选区编辑画布');await canvas.scrollIntoViewIfNeeded();
+ const rect=(await canvas.boundingBox())!;
+ const painted=page.waitForResponse(r=>r.url().endsWith('/paint'));
+ await page.mouse.move(rect.x+rect.width*.8,rect.y+rect.height*.25);await page.mouse.down();
+ await page.mouse.move(rect.x+rect.width*.82,rect.y+rect.height*.26,{steps:3});await page.mouse.up();
+ expect((await painted).ok()).toBeTruthy();
+ await expect(page.getByRole('button',{name:'撤销笔画'})).toBeEnabled();
+ const undone=page.waitForResponse(r=>r.url().endsWith('/undo'));
+ await page.getByRole('button',{name:'撤销笔画'}).click();expect((await undone).ok()).toBeTruthy();
+ await expect(page.getByRole('button',{name:'细化边缘'})).toBeEnabled();
+ await page.screenshot({path:'work/ui-local-workspace.png',fullPage:true});
+ const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'导出 XMP 预设'}).click()]);
+ await download.saveAs(path.resolve('work/ui-local-export.xmp'));
+ expect(errors).toEqual([]);
+});

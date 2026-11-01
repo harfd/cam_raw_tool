@@ -1,0 +1,192 @@
+{
+  "decision": {
+    "scene": "户外林间水岸写生场景，古树环绕，石桥横跨溪流，画面中有人静坐作画",
+    "subject": "背对镜头写生的画家与画架上的风景画板，人物占比较小，画板是视觉焦点之一",
+    "composition": "以人物与画架为右下方前景重点，大树干在右侧形成竖向框线，石桥与水面构成横向层次，远处植被与天空形成背景；整体构图自然，留白较多，画板与实景形成呼应",
+    "lighting": "阴天柔光，光线漫射均匀，没有强烈直射光；天空较亮，树荫与水面较暗，暗部占比较大，整体对比中等偏低",
+    "mood": "安静、沉浸、带一点阴天林间的静谧与潮湿感，适合表现写生现场的专注氛围",
+    "recommended_style": "cinematic",
+    "strategies": [
+      "protect_highlights",
+      "lift_shadows",
+      "preserve_skin",
+      "soften_contrast",
+      "enhance_depth",
+      "restrain_color"
+    ],
+    "rationale": "画面是高动态范围阴天场景：天空与局部亮点容易过曝，人物与树荫暗部较深，若统一大幅提亮会破坏真实树荫光影。计划采用轻提暗部、保护天空高光、局部提亮人物与画板的方案，保留现场明暗关系。同时绿色植被面积大，需控制绿色饱和度与明度，避免发灰或过艳；人物区域适度提亮并保护肤色与衣物质感。整体呈现电影感低饱和、暗部偏青灰、高光偏暖的中性层次，色调克制而自然。",
+    "crop_suggestion": "保留原构图。若需要更突出画板与人物，可轻微裁掉最左侧水面和底部地面边缘，但不建议裁切右侧树干，以免削弱场景空间感。",
+    "editing_plan": {
+      "correction": {
+        "exposure_ev": 0.1,
+        "highlights": -40,
+        "shadows": 20,
+        "whites": -15
+      },
+      "look": {
+        "contrast": 10,
+        "blacks": -5,
+        "texture": 5,
+        "clarity": 4,
+        "dehaze": 5,
+        "vibrance": 8,
+        "saturation": -4,
+        "shadow_hue": 210,
+        "highlight_hue": 45,
+        "global_hue": 40,
+        "shadow_saturation": 12,
+        "highlight_saturation": 6,
+        "global_saturation": 0,
+        "balance": 0,
+        "grain": 8,
+        "colors": [
+          {
+            "color": "Green",
+            "hue": -5,
+            "saturation": -8,
+            "luminance": -4
+          },
+          {
+            "color": "Yellow",
+            "hue": 3,
+            "saturation": -5,
+            "luminance": 2
+          },
+          {
+            "color": "Blue",
+            "hue": 0,
+            "saturation": -4,
+            "luminance": 0
+          }
+        ],
+        "curve": [
+          {
+            "x": 0,
+            "y": 8
+          },
+          {
+            "x": 48,
+            "y": 42
+          },
+          {
+            "x": 96,
+            "y": 88
+          },
+          {
+            "x": 160,
+            "y": 156
+          },
+          {
+            "x": 208,
+            "y": 206
+          },
+          {
+            "x": 255,
+            "y": 250
+          }
+        ]
+      },
+      "local": [
+        {
+          "region_id": "ff59cda27d3240b7b479efc4bc722494",
+          "reason": "主体人物与画板处于暗部，需要适度提亮并保持自然肤色与衣物层次，避免过曝或色偏",
+          "adjustments": {
+            "exposure": 0.35,
+            "shadows": 18,
+            "highlights": -10,
+            "contrast": 4,
+            "saturation": -2,
+            "clarity": 5,
+            "temperature": 2,
+            "tint": 1
+          }
+        },
+        {
+          "region_id": "9ed39fbc3aaa4545a43ea5216fb4e7eb",
+          "reason": "天空是画面最亮区域，容易被提亮推高曝光，需保护高光并保留云层与浅蓝信息",
+          "adjustments": {
+            "exposure": -0.25,
+            "highlights": -30,
+            "whites": -20,
+            "dehaze": 5,
+            "blue": 4
+          }
+        },
+        {
+          "region_id": "ed219217738e4452af7053f85fae77ce",
+          "reason": "植被面积最大，绿色容易发灰或过艳，需要轻微压低饱和、控制明度并保留阴天绿叶层次",
+          "adjustments": {
+            "exposure": 0.05,
+            "contrast": 5,
+            "shadows": 10,
+            "saturation": -6,
+            "clarity": 4
+          }
+        },
+        {
+          "region_id": "6c317f6cbfb24c2ab68958952b4a6e10",
+          "reason": "水面偏暗且容易浑浊，需要轻微提亮并增加通透度，但不宜过度染色",
+          "adjustments": {
+            "exposure": 0.15,
+            "shadows": 8,
+            "dehaze": 8,
+            "saturation": -2,
+            "clarity": 3
+          }
+        },
+        {
+          "region_id": "a8c521100af34a11b58d714148ba57ca",
+          "reason": "地面处于前景暗部且细节易丢失，适度提亮并保留粗糙质感，避免整体发灰",
+          "adjustments": {
+            "exposure": 0.1,
+            "shadows": 8,
+            "contrast": 3,
+            "clarity": 3
+          }
+        },
+        {
+          "region_id": "e80aa18effdb476c80aefcd61670127d",
+          "reason": "背景面积大且整体偏暗，轻微提亮以增强空间层次，但需避免破坏真实树荫和压暗前景对比",
+          "adjustments": {
+            "exposure": 0.05,
+            "shadows": 6,
+            "contrast": 4,
+            "dehaze": 3
+          }
+        }
+      ]
+    }
+  },
+  "regions": [
+    {
+      "id": "ff59cda27d3240b7b479efc4bc722494",
+      "name": "region-0",
+      "kind": "test"
+    },
+    {
+      "id": "9ed39fbc3aaa4545a43ea5216fb4e7eb",
+      "name": "region-1",
+      "kind": "test"
+    },
+    {
+      "id": "ed219217738e4452af7053f85fae77ce",
+      "name": "region-2",
+      "kind": "test"
+    },
+    {
+      "id": "6c317f6cbfb24c2ab68958952b4a6e10",
+      "name": "region-3",
+      "kind": "test"
+    },
+    {
+      "id": "a8c521100af34a11b58d714148ba57ca",
+      "name": "region-4",
+      "kind": "test"
+    },
+    {
+      "id": "e80aa18effdb476c80aefcd61670127d",
+      "name": "region-5",
+      "kind": "test"
+    }
+  ]
+}

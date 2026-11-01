@@ -1,0 +1,42 @@
+import {test,expect} from '@playwright/test';
+import path from 'node:path';
+import {readFile} from 'node:fs/promises';
+
+test('当前手动参数送入增量编辑、恢复方案、导出与撤销',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ let edited:any=null,before:any=null,jid='',phase=0;
+ await page.route('**/api/settings',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),has_key:true}});});
+ await page.route('**/api/jobs',async route=>{if(route.request().method()!=='GET'){await route.continue();return;}const response=await route.fetch();if(edited){const rows=await response.json();await route.fulfill({json:rows.map((j:any)=>j.id===jid?edited:j)});}else await route.fulfill({response});});
+ await page.route('**/api/jobs/*/refine',async route=>{
+   const request=route.request().postDataJSON();before=request.state;
+   expect(request.instruction).toBe('只降低对比度，其他保持不变');
+   expect(before.overrides.Contrast2012).toBe(21);expect(before.overrides.Saturation).toBe(-8);
+   jid=route.request().url().split('/').at(-2)!;
+   const response=await page.request.get('/api/jobs/'+jid,{headers:{Authorization:route.request().headers()['authorization']}});
+   const actual=await response.json();
+   edited={...actual,edit_state:{...before,overrides:{...before.overrides,Contrast2012:12}},refinement_history:[{time:'2026-11-01T00:00:00Z',instruction:request.instruction,explanation:'仅降低当前对比度，保留其他参数。',changes:[{scope:'global',parameter:'Contrast2012',before:21,after:12}],before_state:before,before_local:{}}]};
+   phase=1;await route.fulfill({status:202,json:{...actual,status:'refining'}});
+ });
+ await page.route('**/api/jobs/*/refine/undo',async route=>{edited={...edited,edit_state:before,refinement_history:[]};phase=2;await route.fulfill({json:edited});});
+ await page.route('**/api/jobs/*',async route=>{if(edited&&route.request().url().endsWith('/'+jid)&&route.request().method()==='GET'){await route.fulfill({json:edited});}else await route.continue();});
+ await page.goto('/');
+ await page.getByRole('button',{name:'导入 NEF 照片'}).click();
+ await page.getByLabel('NEF 文件').setInputFiles(path.resolve('DSC_0002.NEF'));
+ await page.getByRole('button',{name:'导入并分析原片'}).click();
+ await expect(page.getByRole('button',{name:'关闭导入'})).toHaveCount(0);
+ await expect(page.getByAltText('原始解码预览')).toBeVisible({timeout:40000});
+ await page.locator('#Contrast2012').fill('21');await page.locator('#Saturation').fill('-8');
+ await page.getByLabel('增量修改要求').fill('只降低对比度，其他保持不变');
+ await page.getByRole('button',{name:'修改当前效果',exact:true}).click();
+ await expect(page.getByText('AI 修改已应用，可查看修改明细或撤销。')).toBeVisible({timeout:10000});
+ await expect(page.locator('#Contrast2012')).toHaveValue('12');await expect(page.locator('#Saturation')).toHaveValue('-8');
+ await page.reload();await expect(page.locator('#Contrast2012')).toHaveValue('12');
+ const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'导出 XMP 预设'}).click()]);
+ await download.saveAs(path.resolve('work/ui-refinement-export.xmp'));
+ const xml=await readFile(path.resolve('work/ui-refinement-export.xmp'),'utf8');
+ expect(xml).toContain('crs:Contrast2012="12"');expect(xml).toContain('crs:Saturation="-8"');
+ await page.screenshot({path:'work/ui-refinement-workspace.png',fullPage:true});
+ await page.getByRole('button',{name:'撤销上次 AI 修改'}).click();
+ await expect(page.locator('#Contrast2012')).toHaveValue('21');expect(phase).toBe(2);expect(errors).toEqual([]);
+ await page.unrouteAll({behavior:'wait'});
+});

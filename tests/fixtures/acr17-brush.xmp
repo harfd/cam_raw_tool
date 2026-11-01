@@ -1,0 +1,37 @@
+<?xml version='1.0' encoding='utf-8'?>
+<x:xmpmeta xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:x="adobe:ns:meta/">
+  <rdf:RDF>
+    <rdf:Description crs:Version="17.3" crs:ProcessVersion="15.4">
+      <crs:MaskGroupBasedCorrections>
+        <rdf:Seq>
+          <rdf:li>
+            <rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="true" crs:CorrectionName="蒙版 1" crs:CorrectionSyncID="53AB4A445B30014C847B1CECD4CDE188" crs:LocalExposure="0" crs:LocalHue="0" crs:LocalSaturation="0" crs:LocalContrast="0" crs:LocalClarity="0" crs:LocalSharpness="0" crs:LocalBrightness="0" crs:LocalToningHue="0" crs:LocalToningSaturation="0" crs:LocalExposure2012="0.125" crs:LocalContrast2012="0" crs:LocalHighlights2012="0" crs:LocalShadows2012="0" crs:LocalWhites2012="0" crs:LocalBlacks2012="0" crs:LocalClarity2012="0" crs:LocalDehaze="0" crs:LocalLuminanceNoise="0" crs:LocalMoire="0" crs:LocalDefringe="0" crs:LocalTemperature="0" crs:LocalTint="0" crs:LocalTexture="0" crs:LocalGrain="0" crs:LocalCorrectedDepth="0" crs:LocalCurveRefineSaturation="100">
+              <crs:CorrectionMasks>
+                <rdf:Seq>
+                  <rdf:li>
+                    <rdf:Description crs:What="Mask/Aggregate" crs:MaskActive="true" crs:MaskName="画笔 1" crs:MaskBlendMode="0" crs:MaskInverted="false" crs:MaskSyncID="0A429738D9C8F241A95C2D327C6C4B39" crs:MaskValue="1">
+                      <crs:Masks>
+                        <rdf:Seq>
+                          <rdf:li>
+                            <rdf:Description crs:What="Mask/Paint" crs:MaskActive="true" crs:MaskBlendMode="0" crs:MaskInverted="false" crs:MaskSyncID="62BBC4D2625058459EAB83896251F744" crs:MaskValue="1" crs:Radius="0.395368" crs:Flow="0.5" crs:CenterWeight="0">
+                              <crs:Dabs>
+                                <rdf:Seq>
+                                  <rdf:li>f 0.5000</rdf:li>
+                                  <rdf:li>d 0.532458 0.682677</rdf:li>
+                                </rdf:Seq>
+                              </crs:Dabs>
+                            </rdf:Description>
+                          </rdf:li>
+                        </rdf:Seq>
+                      </crs:Masks>
+                    </rdf:Description>
+                  </rdf:li>
+                </rdf:Seq>
+              </crs:CorrectionMasks>
+            </rdf:Description>
+          </rdf:li>
+        </rdf:Seq>
+      </crs:MaskGroupBasedCorrections>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
