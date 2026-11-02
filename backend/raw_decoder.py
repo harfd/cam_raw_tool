@@ -3,7 +3,42 @@ import exifread
 import numpy as np
 import rawpy
 from fractions import Fraction
-from PIL import Image
+from PIL import Image, ImageCms
+import threading
+
+_preview_lock = threading.RLock()
+SRGB_ICC = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+
+def decode_rgb(path, half_size=True):
+    with rawpy.imread(str(path)) as raw:
+        rgb = raw.postprocess(use_camera_wb=True, no_auto_bright=False, auto_bright_thr=.005,
+                               half_size=half_size, output_color=rawpy.ColorSpace.sRGB, gamma=(1,1), output_bps=16)
+    return encode_srgb16(rgb)
+
+
+def encode_srgb16(rgb):
+    # LibRaw defaults to a BT.709 transfer curve. Encode explicit sRGB before
+    # attaching an sRGB ICC or applying sRGB inverse transfer in the renderer.
+    linear=rgb.astype(np.float32)/65535
+    encoded=np.where(linear<=.0031308,12.92*linear,1.055*np.maximum(linear,0)**(1/2.4)-.055)
+    return np.rint(np.clip(encoded,0,1)*65535).astype(np.uint16)
+
+
+def ensure_precision(directory, full=False):
+    """Lazy cache for existing jobs; never changes saved plans or masks."""
+    name = "full-srgb-v2.npy" if full else "preview-srgb-v2.npy"
+    target = directory / name
+    with _preview_lock:
+        if not target.exists():
+            rgb = decode_rgb(directory / "source.NEF", half_size=not full)
+            if not full:
+                h,w = rgb.shape[:2]; scale = min(1,1600/max(h,w))
+                rgb = cv2.resize(rgb.astype(np.float32)/65535, (round(w*scale),round(h*scale)), interpolation=cv2.INTER_AREA)
+            temporary = target.with_suffix(".tmp")
+            with temporary.open("wb") as stream: np.save(stream,rgb,allow_pickle=False)
+            temporary.replace(target)
+    return target
+
 
 def decode(path, out_dir):
     with open(path, 'rb') as stream:
@@ -33,14 +68,18 @@ def decode(path, out_dir):
         }
         metadata.update(width=raw.sizes.width, height=raw.sizes.height)
         rgb = raw.postprocess(use_camera_wb=True, no_auto_bright=False, auto_bright_thr=.005, half_size=True,
-                              output_color=rawpy.ColorSpace.sRGB, output_bps=8)
-    image = Image.fromarray(rgb)
-    image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
-    image.save(out_dir / 'original.jpg', quality=92)
+                              output_color=rawpy.ColorSpace.sRGB, gamma=(1,1), output_bps=16)
+    rgb=encode_srgb16(rgb)
+    h,w = rgb.shape[:2]; scale = min(1,1600/max(h,w))
+    arr = cv2.resize(rgb.astype(np.float32)/65535,(round(w*scale),round(h*scale)),interpolation=cv2.INTER_AREA)
+    with (out_dir / 'preview-srgb.tmp').open('wb') as stream: np.save(stream,arr,allow_pickle=False)
+    (out_dir / 'preview-srgb.tmp').replace(out_dir / 'preview-srgb-v2.npy')
+    image = Image.fromarray(np.rint(np.clip(arr,0,1)*255).astype(np.uint8))
+    image.save(out_dir / 'original.jpg', quality=92,icc_profile=SRGB_ICC)
+    image.save(out_dir / 'original.png',icc_profile=SRGB_ICC)
     preview = image.copy()
     preview.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
     preview.save(out_dir / 'ai.jpg', quality=85)
-    arr = np.asarray(image).astype(np.float32) / 255
     linear = np.where(arr <= .04045, arr / 12.92, ((arr + .055) / 1.055) ** 2.4)
     lum = linear @ np.array([.2126, .7152, .0722], dtype=np.float32)
     gray = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2GRAY)
@@ -51,7 +90,7 @@ def decode(path, out_dir):
     balance = [float((xs * edges).sum() / max(total, 1) / edges.shape[1]),
                float((ys * edges).sum() / max(total, 1) / edges.shape[0])]
     metrics = {
-        'preview_version': 2,
+        'preview_version': 3,
         'iso': int(str(metadata.get('iso', '0'))) if str(metadata.get('iso', '0')).isdigit() else 0,
         'sensor': sensor_metrics,
         'preview': {

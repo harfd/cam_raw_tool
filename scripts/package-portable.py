@@ -4,14 +4,18 @@ import subprocess
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-target = root / 'release' / 'AI RAW Studio 0.7.0'
+target = root / 'release' / 'AI RAW Studio 0.8.0'
 target.mkdir(parents=True, exist_ok=True)
 shutil.copy2(root / 'src-tauri/target/release/ai-raw-studio.exe', target / 'AI RAW Studio.exe')
 shutil.copytree(root / 'dist/raw-studio-server', target / 'server', dirs_exist_ok=True)
-(target / '使用说明.txt').write_text('''AI RAW Studio 0.7.0 — Windows x64 便携版
+(target / '使用说明.txt').write_text('''AI RAW Studio 0.8.0 — Windows x64 便携版
 
 完整解压后运行 AI RAW Studio.exe，请保留旁边的 server 文件夹。
 无需安装 Python、Node.js 或 Rust。需要 Windows WebView2 运行时。
+
+新增：在“高精度预览与 ACR 对照”查看原尺寸局部，冻结方案并保存验证包。
+在ACR打开解压后的副本并载入XMP，导出sRGB原始画幅成片，再导入软件查看差异和报告。
+普通预览仍是近似，真实ACR验证请按包内使用说明操作。
 
 1. 选择“模型与 API 设置”，填写自己的 DeepSeek API Key。
    服务地址：https://api.deepseek.com；模型名：deepseek-flash。
@@ -68,7 +72,7 @@ for environment in [root/'.venv/Lib/site-packages', root/'.tools/film-runtime/Li
 # Include the exact application sources, including pending authorized changes.
 # Personal NEFs/XMPs, credentials, caches, binaries and model weights are ignored.
 source_files=subprocess.check_output(['git','ls-files','-z','--cached','--others','--exclude-standard'],cwd=root).decode('utf-8').split('\0')
-source_zip=target/'AI-RAW-Studio-0.7.0-source.zip'
+source_zip=target/'AI-RAW-Studio-0.8.0-source.zip'
 with zipfile.ZipFile(source_zip,'w',zipfile.ZIP_DEFLATED) as source:
     for name in sorted(set(source_files)):
         if not name:continue
@@ -76,7 +80,7 @@ with zipfile.ZipFile(source_zip,'w',zipfile.ZIP_DEFLATED) as source:
         if path.suffix.lower()=='.nef' or (path.suffix.lower()=='.xmp' and 'tests' not in path.parts):continue
         if path.is_file() and not any(part in {'.env','.git','.tools','.venv','node_modules','work','release','target','dist'} for part in Path(name).parts):
             source.write(path,name)
-(target/'胶片模拟说明.txt').write_text('''胶片模拟 — AI RAW Studio 0.7.0
+(target/'胶片模拟说明.txt').write_text('''胶片模拟 — AI RAW Studio 0.8.0
 
 导入 NEF 后，在效果对比下方找到“胶片模拟”。无需配置 AI Key。
 内置20款胶片和8款相纸／印片。反转片直接扫描，不应用相纸或冲印曝光。
@@ -95,7 +99,7 @@ Film modeling powered by spektrafilm, by Andrea Volpato.
 https://github.com/andreavolpato/spektrafilm
 程序源码 GPLv3；胶片配置 CC BY-SA 4.0。原始许可证和对应源码随包提供。
 ''',encoding='utf-8-sig')
-archive = root / 'release/AI-RAW-Studio-0.7.0-win-x64.zip'
+archive = root / 'release/AI-RAW-Studio-0.8.0-win-x64.zip'
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=5) as bundle:
     for file in sorted(target.rglob('*')):
         if file.is_file():

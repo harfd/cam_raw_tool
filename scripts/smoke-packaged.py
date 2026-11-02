@@ -18,7 +18,7 @@ try:
         for _ in range(30):
             try:
                 health=client.get('/api/health')
-                assert health.status_code == 200 and health.json()['version']=='0.7.0'
+                assert health.status_code == 200 and health.json()['version']=='0.8.0'
                 break
             except httpx.ConnectError:
                 time.sleep(.2)
@@ -48,7 +48,15 @@ try:
                 'overrides':{'RedHue':18,'BlueSaturation':-12,'ParametricLights':10,'HueAdjustmentGreen':-16,'ColorGradeMidtoneHue':35,'ColorGradeMidtoneSat':8,'ColorGradeMidtoneLum':7,'ColorGradeBlending':70,'PostCropVignetteAmount':-18,'PostCropVignetteStyle':2,'PostCropVignetteFeather':80},
                 'white_balance':{'mode':'custom','temperature':6100,'tint':8},
                 'curve_overrides':{'blue':[{'x':0,'y':5},{'x':128,'y':140},{'x':255,'y':255}]}}
-        assert client.post(f'/api/jobs/{job_id}/preview', json=body).content.startswith(b'\xff\xd8')
+        assert client.post(f'/api/jobs/{job_id}/preview', json=body).content.startswith(b'\x89PNG')
+        frozen=client.post(f'/api/jobs/{job_id}/validation',json=body)
+        frozen.raise_for_status();snapshot=frozen.json()
+        prefix=f"/api/jobs/{job_id}/validation/{snapshot['id']}"
+        reference=client.get(prefix+'/reference');reference.raise_for_status()
+        compared=client.post(prefix+'/compare',files={'image':('reference.png',reference.content,'image/png')},params={'acr_version':'test loopback'})
+        compared.raise_for_status();assert compared.json()['rmse_255']<.51
+        assert client.get(prefix+'/package').content.startswith(b'PK')
+        assert client.post(f'/api/jobs/{job_id}/detail',json=body).content.startswith(b'\x89PNG')
         segmentation = client.post(f'/api/jobs/{job_id}/segment', json={})
         segmentation.raise_for_status()
         subject = next(region for region in segmentation.json()['regions'] if region['kind']=='subject')
@@ -66,7 +74,7 @@ try:
         assert desc.get(f'{{{CRS}}}ColorGradeMidtoneLum')=='7' and desc.get(f'{{{CRS}}}PostCropVignetteAmount')=='-18'
         assert [p.text for p in desc.findall(f'{{{CRS}}}ToneCurvePV2012Blue/{{{RDF}}}Seq/{{{RDF}}}li')]==['0, 5','128, 140','255, 255']
         (root / 'work' / 'ACR_validation.xmp').write_bytes(exported.content)
-        print(json.dumps({'packaged_service': 'passed', 'raw_decode': 'passed', 'preview': 'passed', 'local_model': 'passed', 'mask_export': 'passed','color_panels':'passed','refinement_routes':'passed','quality_check_and_correction':'passed'}, ensure_ascii=False))
+        print(json.dumps({'packaged_service': 'passed', 'raw_decode': 'passed', 'preview': 'passed', 'local_model': 'passed', 'mask_export': 'passed','color_panels':'passed','refinement_routes':'passed','quality_check_and_correction':'passed','acr_snapshot_loopback':'passed','full_resolution_detail':'passed'}, ensure_ascii=False))
 finally:
     child.terminate()
     child.wait(timeout=15)

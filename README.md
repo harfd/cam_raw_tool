@@ -4,6 +4,32 @@
 
 仓库包含源码、测试与构建脚本。原始 NEF、个人 XMP、API Key、本地历史、模型权重、依赖环境和构建产物不随源码提交。首次使用需安装依赖并运行模型下载脚本；需要样片的集成测试请自行在项目根目录准备 `DSC_0002.NEF` 和 `DSC_0002.xmp`。分割模型的来源及许可证保留在 `backend/assets/segformer` 中。
 
+## 0.8.0：高精度预览与 ACR 对照验证
+
+- RAW先解码为16位线性sRGB，再明确应用sRGB传递函数，避免把LibRaw默认BT.709传递曲线误标为sRGB。参数依据：[rawpy Params](https://letmaik.github.io/rawpy/api/rawpy.Params.html)。
+- 普通调色预览改为16位 sRGB 解码后缩小到最长边1600，缓存浮点数组；所有调色和效果检查使用该高精度输入，最终显示输出为带 sRGB ICC 的无损8位 PNG。避免先压成8位 JPEG再调色；不承诺额外恢复 LibRaw 已剪裁的高光。AI发送仍是缩小JPEG。
+- 已有任务按需从原片副本建立缓存，不清除参数、蒙版或AI分析。旧效果检查报告会因渲染器版本变化而过期，应重新检查。
+- “查看原尺寸局部”按需生成全尺寸16位 sRGB缓存，点击缩略图选位置，显示640×640原尺寸像素；处理带边界余量，局部蒙版按图像坐标采样，暗角使用全图坐标。首次使用需要解码和额外磁盘空间（5600×3728样片约120MB）；删除该照片任务时缓存一起删除。高频质感和颗粒依然可能随处理分辨率变化。
+- “冻结当前方案”保存参数、蒙版版本依据、源文件/XMP校验值、本地浮点参考及验证包；包中包含原片副本、XMP、参考PNG、快照JSON与使用说明。不覆盖用户原图；所有操作本地完成，不调用AI。
+- 解压验证包，在 ACR 打开副本并载入同包XMP，关闭额外自动调整、裁切、旋转及几何变形，以 sRGB 原始画幅导出 JPEG/PNG/TIFF；推荐嵌入 ICC。记录实际ACR版本和相机配置文件，再导入此快照的实际成片。
+- 图像先依 ICC 转为 sRGB 的8位显示像素，再缩小到本地参考尺寸；不支持无依据地把未知色域当作sRGB。无ICC须由用户明确确认sRGB。拒绝比例不符和小于参考尺寸的成片；不自动配准，也无法证明照片内容或设置相同。
+- 支持分界线对比、参考像素100%滚动查看、ΔE76色差热图、全图/暗部/中间调/亮部的平均绝对差、亮度偏差、RGB偏差、RMSE和色差分布；报告可另存JSON。数值用于发现偏差，不作审美评分、不作Adobe兼容性认证。
+- 参数、AI分析或选区改变后提示快照过期；原快照仍可继续对照，重开照片恢复最近一次快照及报告。新快照不会修改旧快照；同一快照重新导入成片会更新其当前报告。
+- 两套引擎的相机配置文件、基础曲线、白平衡、局部色彩算法等仍不同。本版本建立测量流程，未根据未经验证的样本自动拟合补偿曲线。
+- 开发验证覆盖真实NEF解码和100%局部、精度保留、冻结快照、回环差异计算、ICC/尺寸拒绝、界面导入导出和过期提示。回环测试不是Adobe实际渲染验证；真实ACR成片必须另行导入对照。
+
+开发时可生成中性、曝光、曲线、颜色四组对照案例（不覆盖旧结果）：
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 scripts/acr-validation.py prepare --source DSC_0002.NEF --template DSC_0002.xmp --output work/acr-cases
+```
+
+输出 `cases.json` 记录快照目录。将实际ACR成片与对应快照比较：
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 scripts/acr-validation.py compare --snapshot "快照目录" --image "ACR成片路径" --acr-version "实际版本" --camera-profile "实际配置文件"
+```
+
 ## 0.7.0：独立胶片模拟
 
 - 内置20款胶片、8款相纸／印片；反转片直接扫描，不应用相纸或冲印曝光。默认启用引擎自动曝光，可按需关闭。
@@ -95,7 +121,7 @@
 
 ## 直接使用
 
-便携版位于 `E:\Prj\camera_raw_tool\release\AI RAW Studio 0.6.0`，运行里面的 `AI RAW Studio.exe`。也可解压 `release\AI-RAW-Studio-0.6.0-win-x64.zip` 后运行。必须保留同目录的 `server` 文件夹。无需 Python 或 Node；Windows 需要 WebView2。
+便携版位于 `E:\Prj\camera_raw_tool\release\AI RAW Studio 0.8.0`，运行里面的 `AI RAW Studio.exe`。也可解压 `release\AI-RAW-Studio-0.8.0-win-x64.zip` 后运行。必须保留同目录的 `server` 文件夹。无需 Python 或 Node；Windows 需要 WebView2。
 
 1. 在「模型与 API 设置」填写 DeepSeek API Key。默认地址 `https://api.deepseek.com`，模型 `deepseek-flash`（DeepSeek V4.1 Flash 官方接口名）。
 2. 导入 NEF；可同时选择 XMP。支持拖入文件。本版针对提供的 Nikon Z 30 样片验证。
@@ -108,7 +134,7 @@
 
 ## MVP 范围与边界
 
-- RAW：rawpy/LibRaw，用相机白平衡解码为 sRGB，生成用于分析的显示亮度参考预览（不等同于 ACR 校准渲染）；保留源文件，内部仅处理副本。
+- RAW：rawpy/LibRaw，用相机白平衡解码为16位 sRGB，保留浮点预览缓存并生成用于分析的显示亮度参考图（不等同于 ACR 校准渲染）；保留源文件，内部仅处理副本。
 - 技术指标：传感器黑白电平归一化、各通道近饱和比例、RGB 直方图、线性化预览亮度分布、饱和度和边缘重心。预览暗部占比不是传感器动态范围；边缘重心不是主体检测或构图评分。
 - AI：原生图像输入，结构化 JSON 经 Pydantic 验证，异常或额度不足会显示明确错误，不伪造 AI 分析结果。模型输出经过范围校验的明暗、颜色、曲线和局部目标；独立引擎映射并生成 XMP。
 - 参数：照片基础纠正和风格层分离；限制高光、曝光、高 ISO 提亮和肤色色相。第一版使用规则与模板，没有训练模型或复杂优化求解。

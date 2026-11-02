@@ -76,7 +76,7 @@ def test_real_nef_end_to_end(monkeypatch):
         assert job['status'] == 'ready', job
         assert 'Z 30' in job['metadata']['camera']
         assert 0 <= job['metrics']['sensor']['saturated_fraction'] <= 1
-        assert client.get(f'/api/jobs/{job_id}/original').content.startswith(b'\xff\xd8')
+        assert client.get(f'/api/jobs/{job_id}/original').content.startswith(b'\x89PNG')
         assert client.post(f'/api/jobs/{job_id}/analyze', json={}).status_code == 400
         for style in ['natural', 'cinematic', 'film']:
             for mode in ['photo', 'style']:
@@ -85,7 +85,7 @@ def test_real_nef_end_to_end(monkeypatch):
                         'curve_overrides':{'blue':[{'x':0,'y':5},{'x':128,'y':135},{'x':255,'y':255}]}}
                 preview = client.post(f'/api/jobs/{job_id}/preview', json=body)
                 assert preview.status_code == 200, preview.text[:100]
-                assert preview.content.startswith(b'\xff\xd8')
+                assert preview.content.startswith(b'\x89PNG')
                 exported = client.post(f'/api/jobs/{job_id}/export', json={**body, 'name': '测试'})
                 assert exported.status_code == 200
                 desc=ET.fromstring(exported.content).find(f'{{{RDF}}}RDF/{{{RDF}}}Description')

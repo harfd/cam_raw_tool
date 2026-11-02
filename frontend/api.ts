@@ -38,3 +38,11 @@ export async function downloadFilm(jobId:string,operation:string,name:string,blo
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);return true;
 }
+
+export async function downloadValidation(jobId:string,snapshotId:string,kind:'package'|'report'){
+  if(native)return invoke<boolean>('save_validation',{jobId,operation:snapshotId,kind});
+  const blob=await(await request(`/jobs/${jobId}/validation/${snapshotId}/${kind}`)).blob();
+  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;
+  a.download=kind==='package'?'ACR对照验证.zip':'ACR对照报告.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);return true;
+}

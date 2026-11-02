@@ -75,10 +75,12 @@ def grading_preview(rgb,p):
     result+=color*p.get('ColorGradeGlobalSat',0)/100*.2+p.get('ColorGradeGlobalLum',0)/100*.18
     return result
 
-def vignette_preview(rgb,p):
+def vignette_preview(rgb,p,frame=None):
     amount=p.get('PostCropVignetteAmount',0)/100
     if not amount:return rgb
     h,w=rgb.shape[:2];y,x=np.mgrid[:h,:w].astype(np.float32)
+    if frame is not None:
+        fw,fh,ox,oy=frame; x+=ox; y+=oy; w,h=fw,fh
     roundness=p.get('PostCropVignetteRoundness',0)/100
     rx=w/2;ry=h/2
     if roundness>=0:
@@ -99,10 +101,8 @@ def vignette_preview(rgb,p):
         return rgb*gain[...,None]
     return 1-(1-rgb)*2**(-amount*1.4*mask[...,None])
 
-def render(path, p, curve=None, regions=None, directory=None, curves=None, return_array=False,max_dimension=None,source_image=None,region_masks=None,white_balance=None):
-    image=source_image.copy() if source_image is not None else Image.open(path).convert('RGB')
-    if max_dimension:image.thumbnail((max_dimension,max_dimension),Image.Resampling.LANCZOS)
-    rgb = np.asarray(image).astype(np.float32) / 255
+def render(path, p, curve=None, regions=None, directory=None, curves=None, return_array=False,max_dimension=None,source_image=None,region_masks=None,white_balance=None,frame=None):
+    rgb = load_source(path,max_dimension) if source_image is None else as_float(source_image,max_dimension)
     linear = np.where(rgb <= .04045, rgb / 12.92, ((rgb + .055) / 1.055) ** 2.4)
     linear=white_balance_preview(linear,p,white_balance)
     linear *= 2 ** p.get('Exposure2012', 0)
@@ -153,9 +153,54 @@ def render(path, p, curve=None, regions=None, directory=None, curves=None, retur
             weight = mask[..., None]
             corrected = local_adjust(rgb, region['adjustments'])
             rgb = rgb * (1 - weight) + corrected * weight
-    rgb=vignette_preview(rgb,p)
+    rgb=vignette_preview(rgb,p,frame)
     if return_array:
         return np.clip(rgb,0,1).astype(np.float32)
     output = io.BytesIO()
-    Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8)).save(output, format='JPEG', quality=92)
+    from .raw_decoder import SRGB_ICC
+    Image.fromarray(np.rint(np.clip(rgb, 0, 1) * 255).astype(np.uint8)).save(output, format='PNG',icc_profile=SRGB_ICC)
+    return output.getvalue()
+
+
+def as_float(image,max_dimension=None):
+    arr=np.asarray(image)
+    if np.issubdtype(arr.dtype,np.integer):
+        arr=arr.astype(np.float32)/np.iinfo(arr.dtype).max
+    else:arr=arr.astype(np.float32,copy=True)
+    h,w=arr.shape[:2]
+    if max_dimension and max(h,w)>max_dimension:
+        scale=max_dimension/max(h,w)
+        arr=cv2.resize(arr,(round(w*scale),round(h*scale)),interpolation=cv2.INTER_AREA)
+    return arr
+
+
+def load_source(path,max_dimension=None):
+    from pathlib import Path
+    path=Path(path);cache=path.parent/'preview-srgb-v2.npy'
+    if path.name=='original.jpg' and cache.exists():
+        return as_float(np.load(cache,allow_pickle=False,mmap_mode='r'),max_dimension)
+    with Image.open(path) as image:return as_float(image.convert('RGB'),max_dimension)
+
+
+def detail(directory,recipe,regions,x,y,size=640):
+    from .raw_decoder import ensure_precision
+    from .segmentation import load_mask
+    full=np.load(ensure_precision(directory,full=True),mmap_mode='r',allow_pickle=False)
+    h,w=full.shape[:2];size=min(size,w,h)
+    left=max(0,min(w-size,round(x*w-size/2)));top=max(0,min(h-size,round(y*h-size/2)))
+    # Halo for local contrast filters; vignette keeps original image coordinates.
+    l=max(0,left-64);t=max(0,top-64);r=min(w,left+size+64);b=min(h,top+size+64)
+    masks={}
+    for region in regions:
+        mask=load_mask(directory,region)
+        # Remap only the requested patch rather than allocate a full-resolution mask.
+        yy,xx=np.mgrid[t:b,l:r].astype(np.float32)
+        masks[region['id']]=cv2.remap(mask,(xx+.5)*mask.shape[1]/w-.5,(yy+.5)*mask.shape[0]/h-.5,cv2.INTER_LINEAR,borderMode=cv2.BORDER_REPLICATE)
+    rgb=render(directory/'original.jpg',recipe['parameters'],recipe['curve'],regions,directory,
+               curves=recipe['curves'],white_balance=recipe['white_balance'],source_image=full[t:b,l:r],
+               region_masks=masks,return_array=True,frame=(w,h,l,t))
+    rgb=rgb[top-t:top-t+size,left-l:left-l+size]
+    output=io.BytesIO()
+    from .raw_decoder import SRGB_ICC
+    Image.fromarray(np.rint(rgb*255).astype(np.uint8)).save(output,format='PNG',icc_profile=SRGB_ICC)
     return output.getvalue()

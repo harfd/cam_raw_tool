@@ -12,12 +12,12 @@ from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
-from . import ai_engine, settings, segmentation, quality, film
+from . import ai_engine, settings, segmentation, quality, film, acr_validation
 from .models import AnalysisRequest, ExportRequest, RenderRequest, SettingsInput, RegionCreate, RegionUpdate, BrushStroke, RefinementRequest, QualityRequest
 from .refinement import merge_refinement, undo_refinement, context_images
 from .parameter_engine import STYLES, RANGES, build_recipe
 from .preview import render
-from .raw_decoder import decode
+from .raw_decoder import decode, ensure_precision
 from .store import JOBS_DIR, get_job, list_jobs, recover_jobs, save_job
 from .xmp import build_xmp, template_info
 
@@ -52,6 +52,8 @@ def ready_job(job_id):
     job = require_job(job_id)
     if 'metrics' not in job:
         raise HTTPException(409, '照片尚未完成解码')
+    if (JOBS_DIR / job_id / "source.NEF").is_file():
+        ensure_precision(JOBS_DIR / job_id)
     return populate_wb_reference(job)
 
 def populate_wb_reference(job):
@@ -101,7 +103,7 @@ def analysis_task(job_id, intent, conf, key,auto_correct=False):
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok', 'version': '0.7.0'}
+    return {'status': 'ok', 'version': '0.8.0'}
 
 def upgrade_preview(job):
     if job['metrics'].get('preview_version', 1) < 2:
@@ -232,7 +234,14 @@ def analyze_job(job_id: str, body: AnalysisRequest):
 @app.get('/api/jobs/{job_id}/original')
 def original(job_id: str):
     ready_job(job_id)
-    return FileResponse(JOBS_DIR / job_id / 'original.jpg', media_type='image/jpeg')
+    directory=JOBS_DIR/job_id
+    from .preview import load_source
+    from .raw_decoder import SRGB_ICC
+    from PIL import Image
+    import io, numpy as np
+    output=io.BytesIO()
+    Image.fromarray(np.rint(load_source(directory/'original.jpg')*255).astype(np.uint8)).save(output,format='PNG',icc_profile=SRGB_ICC)
+    return Response(output.getvalue(),media_type='image/png')
 
 def compute(job, body):
     try:
@@ -358,7 +367,7 @@ def preview(job_id: str, body: RenderRequest):
     job = ready_job(job_id)
     recipe = compute(job, body)
     return Response(render(JOBS_DIR / job_id / 'original.jpg', recipe['parameters'], recipe['curve'],
-                             segmentation.selected_regions(job, body), JOBS_DIR / job_id, curves=recipe['curves'],white_balance=recipe['white_balance']), media_type='image/jpeg')
+                             segmentation.selected_regions(job, body), JOBS_DIR / job_id, curves=recipe['curves'],white_balance=recipe['white_balance']), media_type='image/png')
 
 @app.post('/api/jobs/{job_id}/export')
 def export(job_id: str, body: ExportRequest):
@@ -491,3 +500,62 @@ def delete_job(job_id: str):
         with connect() as db:
             db.execute('DELETE FROM jobs WHERE id=?', (job_id,))
     return {'deleted': True}
+
+
+@app.post('/api/jobs/{job_id}/detail')
+def preview_detail(job_id: str, body: RenderRequest, x: float=.5, y: float=.5):
+    from .preview import detail
+    import math
+    if not math.isfinite(x) or not math.isfinite(y) or not 0<=x<=1 or not 0<=y<=1:
+        raise HTTPException(400,'查看位置超出图像。')
+    with lock:
+        job=editable_job(job_id)
+        return Response(detail(JOBS_DIR/job_id,compute(job,body),segmentation.selected_regions(job,body),x,y),media_type='image/png')
+
+
+@app.post('/api/jobs/{job_id}/validation')
+def create_validation(job_id: str, body: RenderRequest):
+    with lock:
+        job=editable_job(job_id)
+        return acr_validation.create(job,body,compute(job,body),JOBS_DIR/job_id)
+
+
+def validation_root(job_id, snapshot_id):
+    require_job(job_id)
+    if not re.fullmatch('[a-f0-9]{32}',snapshot_id):raise HTTPException(404,'对照快照不存在。')
+    root=JOBS_DIR/job_id/'validation'/snapshot_id
+    if not (root/'snapshot.json').exists():raise HTTPException(404,'对照快照不存在。')
+    return root
+
+
+@app.get('/api/jobs/{job_id}/validation/{snapshot_id}/{kind}')
+def validation_file(job_id: str,snapshot_id: str,kind: str):
+    names={'package':'package.zip','reference':'reference.png','acr':'acr.png','difference':'difference.png','report':'report.json'}
+    with lock:
+        root=validation_root(job_id,snapshot_id)
+        if kind not in names or not (root/names[kind]).is_file():raise HTTPException(404,'对照文件尚未生成。')
+        return FileResponse(root/names[kind],filename=names[kind])
+
+
+@app.post('/api/jobs/{job_id}/validation/{snapshot_id}/compare')
+async def compare_validation(job_id: str,snapshot_id: str,image: UploadFile=File(...),
+                             assume_srgb: bool=False,acr_version: str='',camera_profile: str=''):
+    try:
+        content=await image.read(MAX_UPLOAD+1)
+        with lock:
+            root=validation_root(job_id,snapshot_id)
+            try:return acr_validation.compare(root,content,assume_srgb,acr_version,camera_profile)
+            except ValueError as exc:raise HTTPException(400,str(exc)) from None
+    finally:await image.close()
+
+
+@app.get('/api/jobs/{job_id}/validation')
+def latest_validation(job_id: str):
+    with lock:
+        require_job(job_id)
+        roots=list((JOBS_DIR/job_id/'validation').glob('*/snapshot.json'))
+        if not roots:return None
+        root=max(roots,key=lambda p:p.stat().st_mtime).parent
+        record=json.loads((root/'snapshot.json').read_text('utf-8'))
+        if (root/'report.json').exists():record['report']=json.loads((root/'report.json').read_text('utf-8'))
+        return record

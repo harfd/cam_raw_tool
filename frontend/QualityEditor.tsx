@@ -5,7 +5,7 @@ function stable(value:any):string{if(Array.isArray(value))return '['+value.map(s
 function percent(value:number){return (value*100).toFixed(2)+'%';}
 export function QualityEditor({job,state,disabled,pending,autoCorrect,onAutoCorrect,onCheck,onCorrect,onUndo}:any){
  const [protect,setProtect]=useState(true);
- const basis={state,decision:job.decision??null,regions:(job.regions||[]).map((r:any)=>Object.fromEntries(['id','enabled','revision','feather','adjustments'].map(k=>[k,r[k]??null]))),preview_version:job.metrics?.preview_version??1};
+ const basis={state,decision:job.decision??null,regions:(job.regions||[]).map((r:any)=>Object.fromEntries(['id','enabled','revision','feather','adjustments'].map(k=>[k,r[k]??null]))),preview_version:job.metrics?.preview_version??1,renderer_version:'precision-srgb-v2'};
  const report=job.quality_report;
  const fresh=!!report&&stable(basis)===stable(report.basis);
  const correction=fresh?report.correction:null;

@@ -1,0 +1,32 @@
+import {test,expect} from '@playwright/test';
+import path from 'node:path';
+
+test('ACR 快照、验证包、原尺寸细节、实际图导入、差异和过期提示',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');await page.getByRole('button',{name:'导入 NEF 照片'}).click();
+ await page.getByLabel('NEF 文件').setInputFiles(path.resolve('DSC_0002.NEF'));
+ await page.getByRole('button',{name:'导入并分析原片'}).click();
+ const panel=page.getByRole('region',{name:'ACR 对照验证'});
+ await expect(panel.getByRole('button',{name:'冻结当前方案'})).toBeEnabled({timeout:40000});
+ const frozen=page.waitForResponse(r=>/\/validation$/.test(r.url())&&r.request().method()==='POST');
+ await panel.getByRole('button',{name:'冻结当前方案'}).click();
+ const response=await frozen;expect(response.status()).toBe(200);const snapshot=await response.json();
+ const auth=response.request().headers()['authorization'];
+ const base=response.url()+'/'+snapshot.id;
+ const reference=await page.request.get(base+'/reference',{headers:{Authorization:auth}});expect(reference.ok()).toBeTruthy();
+ const [download]=await Promise.all([page.waitForEvent('download'),panel.getByRole('button',{name:'保存 ACR 验证包'}).click()]);
+ expect(download.suggestedFilename()).toBe('ACR对照验证.zip');
+ await panel.getByLabel('实际 ACR 版本').fill('测试回环（非 Adobe 实际渲染）');
+ await panel.getByLabel('ACR 实际成片').setInputFiles({name:'reference.png',mimeType:'image/png',buffer:await reference.body()});
+ await expect(panel.getByAltText('ACR 实际成片对照')).toBeVisible();
+ await expect(panel.getByAltText('ACR 与本地预览的色差图')).toBeVisible();
+ await expect(panel.locator('table tbody tr').first()).toContainText('全图');
+ await page.locator('#Contrast2012').fill('11');
+ await expect(panel.getByRole('status')).toContainText('当前方案或选区已变化');
+ await panel.getByText('查看原尺寸局部（100%）',{exact:true}).click();
+ await panel.getByRole('button',{name:'查看局部 100%'}).click();
+ await expect(panel.getByAltText('原尺寸局部预览')).toBeVisible({timeout:40000});
+ expect(await panel.getByAltText('原尺寸局部预览').evaluate((img:HTMLImageElement)=>img.naturalWidth)).toBe(640);
+ await page.screenshot({path:'work/ui-acr-validation.png',fullPage:true});
+ expect(errors).toEqual([]);
+});

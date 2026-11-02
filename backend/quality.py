@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 from .models import RenderRequest,Refinement
 from .parameter_engine import build_recipe,RANGES
-from .preview import render
+from .preview import render, load_source
 from .refinement import merge_refinement
 from .segmentation import selected_regions,load_mask
 
@@ -19,7 +19,7 @@ LOCAL_BUDGETS={'exposure':.3,'highlights':20,'whites':15,'shadows':20,'blacks':1
 def basis(job,state):
     return {'state':state.model_dump(),'decision':job.get('decision'),
             'regions':[{k:r.get(k) for k in ['id','enabled','revision','feather','adjustments']} for r in job.get('regions',[])],
-            'preview_version':job['metrics'].get('preview_version',1)}
+            'preview_version':job['metrics'].get('preview_version',1),'renderer_version':'precision-srgb-v2'}
 
 def features(rgb):
     maximum=rgb.max(axis=2);minimum=rgb.min(axis=2)
@@ -45,14 +45,12 @@ class Checker:
     def __init__(self,job,state,directory,max_dimension=None):
         self.directory=directory
         self.max_dimension=max_dimension
-        image=Image.open(directory/'original.jpg').convert('RGB')
-        if max_dimension:image.thumbnail((max_dimension,max_dimension),Image.Resampling.LANCZOS)
-        self.image=image
-        self.original=np.asarray(image).astype(np.float32)/255
+        self.image=load_source(directory/'original.jpg',max_dimension)
+        self.original=self.image
         self.reference=features(self.original)
         self.region_masks={r['id']:load_mask(directory,r) for r in selected_regions(job,state)}
         import cv2
-        self.region_masks={k:cv2.resize(m,(image.width,image.height),interpolation=cv2.INTER_AREA) if m.shape!=self.original.shape[:2] else m for k,m in self.region_masks.items()}
+        self.region_masks={k:cv2.resize(m,(self.original.shape[1],self.original.shape[0]),interpolation=cv2.INTER_AREA) if m.shape!=self.original.shape[:2] else m for k,m in self.region_masks.items()}
         self.masks={r['id']:self.region_masks[r['id']] for r in selected_regions(job,state) if r.get('kind')=='subject' and r.get('area',0)>.002}
 
     def evaluate(self,job,state):

@@ -109,7 +109,7 @@ def test_async_refine_export_persistence_failure_and_undo(monkeypatch,saved_job)
     def refine(original,current,metrics,instruction,context,config,key,validate,**kw):
         assert context['parameters']['RedHue']==17
         assert context['enabled_regions'][0]['adjustments']['exposure']==.3
-        assert current.startswith(b'\xff\xd8') and kw['mask_image'].startswith(b'\xff\xd8')
+        assert current.startswith(b'\x89PNG') and kw['mask_image'].startswith(b'\xff\xd8')
         patch=Refinement(explanation='仅人物提亮并减弱高光暖色',parameters={'SplitToningHighlightSaturation':2},local=[{'region_id':rid,'reason':'提亮人物','adjustments':{'exposure':.6}}])
         validate(patch);return patch
     monkeypatch.setattr(ai_engine,'refine',refine)
