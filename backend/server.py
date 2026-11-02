@@ -18,6 +18,8 @@ def main():
     from backend.main import app
     from backend.store import recover_jobs
     recover_jobs()
+    from backend.film import recover
+    recover()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(('127.0.0.1', args.port))
     sock.listen(128)

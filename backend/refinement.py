@@ -33,7 +33,7 @@ def context_images(job,state,recipe,current_image,directory):
         draw.text((x-4,y-6),label,fill='white')
     buf=io.BytesIO();image.save(buf,format='JPEG',quality=85)
     analysis=job.get('decision') or {}
-    context={'style':state.style,'strength':state.strength,'mode':state.mode,'use_ai':state.use_ai,'include_local':state.include_local,
+    context={'style':state.style,'strength':state.strength,'mode':state.mode,'use_ai':state.use_ai,'include_local':state.include_local,'white_balance':recipe['white_balance'],
              'parameters':recipe['parameters'],'curves':recipe['curves'],'enabled_regions':summaries,
              'parameter_ranges':{k:RANGES[k] for k in recipe['parameters']},
              'local_ranges':LocalAdjustments.model_json_schema()['properties'],
@@ -55,6 +55,13 @@ def merge_refinement(job, state: RenderRequest, patch: Refinement):
     changes=[]
     result=copy.deepcopy(job)
     next_state=state.model_dump()
+    if patch.white_balance is not None:
+        if state.mode=='style' and patch.white_balance.mode!='preserve':raise ValueError('通用风格不能固定白平衡。')
+        before={k:recipe['white_balance'][k] for k in ['mode','temperature','tint']}
+        after=patch.white_balance.model_dump()
+        next_state['white_balance']=after
+        next_state['overrides'].pop('Temperature',None);next_state['overrides'].pop('Tint',None)
+        if before!=after:changes.append({'scope':'white_balance','parameter':'WhiteBalance','before':before,'after':after})
     for key,value in patch.parameters.items():
         # Match the final precision of the parameter engine.
         after=round(value,2) if key=='Exposure2012' else round(value)
@@ -62,6 +69,9 @@ def merge_refinement(job, state: RenderRequest, patch: Refinement):
         if before==after:continue
         next_state['overrides'][key]=after
         changes.append({'scope':'global','parameter':key,'before':before,'after':after})
+    if {'Temperature','Tint'}.intersection(patch.parameters):
+        next_state['white_balance']={'mode':'custom','temperature':next_state['overrides'].pop('Temperature',recipe['parameters']['Temperature']),
+                                    'tint':next_state['overrides'].pop('Tint',recipe['parameters']['Tint'])}
     for channel,points in patch.curves.items():
         after=[[p.x,p.y] for p in points]
         before=recipe['curves'][channel]

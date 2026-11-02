@@ -11,21 +11,27 @@ export function LocalEditor({job, original, processed, onChange, onError, disabl
  const [adjusted,setAdjusted]=useState(true);
  const displayed=adjusted&&processed?processed:original;
  const [radius,setRadius]=useState(.015),[overlay,setOverlay]=useState(true),[adjustments,setAdjustments]=useState<Record<string,number>>({});
+ const [previewError,setPreviewError]=useState(''),[previewReady,setPreviewReady]=useState(false),[retry,setRetry]=useState(0);
  const canvas=useRef<HTMLCanvasElement>(null),base=useRef<HTMLCanvasElement|null>(null);
  const gesture=useRef<{points:[number,number][];start:[number,number]}|null>(null);
  const region=regions.find(r=>r.id===selected);
  useEffect(()=>{ if(!regions.some(r=>r.id===selected))setSelected(regions[0]?.id||''); },[regions,selected]);
- useEffect(()=>{setAdjustments(region?.adjustments || {});},[selected,region?.revision]);
+ const adjustmentKey=JSON.stringify(region?.adjustments);
+ useEffect(()=>{setAdjustments(region?.adjustments || {});},[selected,region?.revision,adjustmentKey]);
  useEffect(()=>{
   if(!displayed||!canvas.current)return;
+  const controller=new AbortController();
   let canceled=false;
+  setPreviewReady(false);setPreviewError('');
   (async()=>{
-   const image=await new Promise<HTMLImageElement>((resolve,reject)=>{const i=new Image();i.onload=()=>resolve(i);i.onerror=reject;i.src=displayed;});
+   const image=await new Promise<HTMLImageElement>((resolve,reject)=>{const i=new Image();i.onload=()=>resolve(i);i.onerror=()=>reject(new Error('照片效果预览加载失败，请重试选区预览。'));i.src=displayed;});
+   if(canceled)return;
    const back=document.createElement('canvas');back.width=image.naturalWidth;back.height=image.naturalHeight;
    const ctx=back.getContext('2d')!;ctx.drawImage(image,0,0);
    if(region&&overlay){
-    const blob=await(await request(`/jobs/${job.id}/regions/${region.id}/mask`)).blob();
-    const bitmap=await createImageBitmap(blob);
+    const blob=await(await request(`/jobs/${job.id}/regions/${region.id}/mask`,{signal:controller.signal})).blob();
+    const bitmap=await createImageBitmap(blob).catch(()=>{throw new Error('选区图像解码失败，请重试选区预览。');});
+    if(canceled){bitmap.close();return;}
     const temp=document.createElement('canvas');temp.width=back.width;temp.height=back.height;
     const t=temp.getContext('2d')!;t.drawImage(bitmap,0,0);bitmap.close();
     const pixels=t.getImageData(0,0,temp.width,temp.height);
@@ -35,14 +41,15 @@ export function LocalEditor({job, original, processed, onChange, onError, disabl
    if(canceled||!canvas.current)return;
    base.current=back;canvas.current.width=back.width;canvas.current.height=back.height;
    canvas.current.getContext('2d')!.drawImage(back,0,0);
-  })().catch(e=>{if(!canceled)onError(e.message||'选区预览加载失败');});
-  return()=>{canceled=true;};
- },[displayed,job.id,selected,region?.revision,overlay]);
+   setPreviewReady(true);
+  })().catch(e=>{if(!canceled&&e.name!=='AbortError')setPreviewError(e.message||'选区预览加载失败，请重试。');});
+  return()=>{canceled=true;controller.abort();};
+ },[displayed,job.id,selected,region?.revision,overlay,retry]);
  async function run(operation:()=>Promise<any>){setBusy(true);try{const next=await operation();onChange(next);return next;}catch(e:any){onError(e.message);}finally{setBusy(false);}}
  function update(body:any){if(region)return run(()=>json(`/jobs/${job.id}/regions/${region.id}`,{...post(body),method:'PUT'}));}
  function point(e:React.PointerEvent<HTMLCanvasElement>):[number,number]{const b=e.currentTarget.getBoundingClientRect();return[Math.max(0,Math.min(1,(e.clientX-b.left)/b.width)),Math.max(0,Math.min(1,(e.clientY-b.top)/b.height))];}
  function down(e:React.PointerEvent<HTMLCanvasElement>){
-  if(busy||disabled||(tool!=='box'&&!region))return;
+  if(busy||disabled||!previewReady||(tool!=='box'&&!region))return;
   e.currentTarget.setPointerCapture(e.pointerId);const p=point(e);gesture.current={points:[p],start:p};
  }
  function move(e:React.PointerEvent<HTMLCanvasElement>){
@@ -74,7 +81,8 @@ export function LocalEditor({job, original, processed, onChange, onError, disabl
   <p className="tiny muted">自动识别人像、天空、植被、水面和地面；框选支持其他主体。红色为当前选区，可用画笔添加或擦除。AI 分析会自动识别并为实际选区制定调整。</p>
   <div className="region-tabs">{regions.map(r=><button key={r.id} className={selected===r.id?'chosen':''} onClick={()=>setSelected(r.id)}>{r.enabled?'●':'○'} {r.name}<small>{(r.area*100).toFixed(1)}%</small></button>)}</div>
   <div className="local-toolbar">{[['add','添加画笔'],['erase','擦除画笔'],['box','框选主体']].map(([id,title])=><button key={id} className={tool===id?'chosen':''} disabled={busy||disabled} onClick={()=>setTool(id as any)}>{title}</button>)}<label>笔刷大小 <input aria-label="局部笔刷大小" type="range" min=".003" max=".08" step=".001" value={radius} onChange={e=>setRadius(+e.target.value)}/></label>{region&&<button disabled={busy||disabled} onClick={()=>run(()=>json(`/jobs/${job.id}/regions/${region.id}/undo`,post({})))}><Undo2 size={13}/>撤销笔画</button>}{region&&<button disabled={busy||disabled} onClick={()=>run(()=>json(`/jobs/${job.id}/regions/${region.id}/refine`,post({})))}>细化边缘</button>}</div>
-  <canvas ref={canvas} aria-label="局部选区编辑画布" className="mask-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;}}/>
+  {previewError&&<div className="alert" role="alert">{previewError}<button className="secondary" onClick={()=>setRetry(n=>n+1)}>重试选区预览</button></div>}
+  <canvas ref={canvas} aria-label="局部选区编辑画布" aria-busy={!previewReady} className="mask-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={()=>{gesture.current=null;}}/>
   {region&&<><div className="region-heading"><div><b>{region.name}</b><small>{region.source}</small></div><label className="checkbox"><input aria-label="启用当前局部调整" type="checkbox" disabled={busy||disabled} checked={region.enabled} onChange={e=>update({enabled:e.target.checked})}/>启用调整</label><button className="text-button" disabled={busy||disabled} onClick={()=>run(()=>json(`/jobs/${job.id}/regions/${region.id}`,{method:'DELETE'}))}>删除选区</button></div>{region.reason&&<p className="rationale">{region.reason}</p>}
    <div className="local-sliders">{controls.map(([key,label,min,max,step])=><div key={key}><div><label htmlFor={'local-'+key}>{label}</label><output>{adjustments[key]||0}</output></div><input id={'local-'+key} type="range" disabled={busy||disabled} min={min} max={max} step={step} value={adjustments[key]||0} onChange={e=>setAdjustments({...adjustments,[key]:+e.target.value})}/></div>)}</div>
    <div className="local-footer"><label>边缘柔化 <input aria-label="选区边缘柔化" type="range" min="0" max="12" step="1" value={region.feather} disabled={busy||disabled} onChange={e=>update({feather:+e.target.value})}/></label><button className="secondary" disabled={busy||disabled} onClick={()=>update({adjustments})}>应用局部调整</button></div>

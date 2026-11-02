@@ -7,11 +7,25 @@ Strategy = Literal['protect_highlights', 'lift_shadows', 'preserve_skin', 'softe
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
 
+class WhiteBalance(StrictModel):
+    mode: Literal['preserve','as_shot','custom'] = 'preserve'
+    temperature: int = Field(default=5500, ge=2000, le=50000)
+    tint: float = Field(default=0, ge=-150, le=150)
+
+class Vignette(StrictModel):
+    amount: float = Field(default=0, ge=-100, le=100)
+    style: Literal[1,2,3] = 1
+    midpoint: float = Field(default=50, ge=0, le=100)
+    roundness: float = Field(default=0, ge=-100, le=100)
+    feather: float = Field(default=50, ge=0, le=100)
+    highlights: float = Field(default=0, ge=0, le=100)
+
 class Correction(StrictModel):
     exposure_ev: float = Field(default=0, ge=-1, le=1)
     highlights: float = Field(default=0, ge=-100, le=30)
     shadows: float = Field(default=0, ge=-40, le=60)
     whites: float = Field(default=0, ge=-60, le=40)
+    white_balance: WhiteBalance = Field(default_factory=WhiteBalance)
 
 class ColorTarget(StrictModel):
     color: Literal['Red','Orange','Yellow','Green','Aqua','Blue','Purple','Magenta']
@@ -64,12 +78,20 @@ class Look(StrictModel):
     saturation: float = Field(default=0, ge=-60, le=60)
     global_hue: float = Field(default=40, ge=0, le=360)
     global_saturation: float = Field(default=0, ge=0, le=25)
+    global_luminance: float = Field(default=0, ge=-100, le=100)
     shadow_hue: float = Field(default=210, ge=0, le=360)
     shadow_saturation: float = Field(default=0, ge=0, le=40)
+    shadow_luminance: float = Field(default=0, ge=-100, le=100)
+    midtone_hue: float = Field(default=0, ge=0, le=360)
+    midtone_saturation: float = Field(default=0, ge=0, le=40)
+    midtone_luminance: float = Field(default=0, ge=-100, le=100)
     highlight_hue: float = Field(default=40, ge=0, le=360)
     highlight_saturation: float = Field(default=0, ge=0, le=40)
+    highlight_luminance: float = Field(default=0, ge=-100, le=100)
+    blending: float = Field(default=50, ge=0, le=100)
     balance: float = Field(default=0, ge=-100, le=100)
     grain: float = Field(default=0, ge=0, le=50)
+    vignette: Vignette = Field(default_factory=Vignette)
     colors: list[ColorTarget] = Field(default_factory=list, max_length=8)
     curve: list[CurvePoint] = Field(default_factory=lambda: [CurvePoint(x=0,y=0),CurvePoint(x=255,y=255)], min_length=2, max_length=12)
     red_curve: list[CurvePoint] = Field(default_factory=linear_curve, min_length=2, max_length=12)
@@ -142,6 +164,7 @@ class RenderRequest(BaseModel):
     overrides: dict[str, float] = Field(default_factory=dict, max_length=128)
     use_ai: bool = True
     include_local: bool = True
+    white_balance: WhiteBalance | None = None
     curve_overrides: dict[Literal['rgb','red','green','blue'], list[CurvePoint]] = Field(default_factory=dict, max_length=4)
 
     @model_validator(mode='after')
@@ -173,10 +196,13 @@ class Refinement(StrictModel):
     parameters: dict[str,float] = Field(default_factory=dict, max_length=128)
     curves: dict[Literal['rgb','red','green','blue'],list[CurvePoint]] = Field(default_factory=dict, max_length=4)
     local: list[LocalPatch] = Field(default_factory=list, max_length=12)
+    white_balance: WhiteBalance | None = None
 
     @model_validator(mode='after')
     def validate_curves(self):
         RenderRequest(curve_overrides=self.curves)
+        if self.white_balance is not None and {'Temperature','Tint'}.intersection(self.parameters):
+            raise ValueError('白平衡对象和 Temperature/Tint 参数不能同时修改。')
         return self
 
 class RegionCreate(StrictModel):

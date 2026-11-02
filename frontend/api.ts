@@ -31,3 +31,10 @@ export async function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return true;
 }
+
+export async function downloadFilm(jobId:string,operation:string,name:string,blob?:Blob){
+  if(native)return invoke<boolean>('save_film',{jobId,operation,name});
+  if(!blob)throw new Error('成片内容尚未准备好');
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);return true;
+}

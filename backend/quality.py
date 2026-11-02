@@ -57,7 +57,7 @@ class Checker:
 
     def evaluate(self,job,state):
         recipe=build_recipe(job['metrics'],job.get('decision'),state)
-        rgb=render(self.directory/'original.jpg',recipe['parameters'],recipe['curve'],selected_regions(job,state),self.directory,curves=recipe['curves'],return_array=True,max_dimension=self.max_dimension,source_image=self.image,region_masks=self.region_masks)
+        rgb=render(self.directory/'original.jpg',recipe['parameters'],recipe['curve'],selected_regions(job,state),self.directory,curves=recipe['curves'],return_array=True,max_dimension=self.max_dimension,source_image=self.image,region_masks=self.region_masks,white_balance=recipe['white_balance'])
         current=features(rgb)
         scopes=[{'name':'全图','region_id':None,'metrics':measures(self.reference,current)}]
         for r in selected_regions(job,state):

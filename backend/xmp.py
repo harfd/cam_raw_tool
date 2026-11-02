@@ -17,11 +17,18 @@ def template_info(path: Path):
     desc = root.find(f'{{{RDF}}}RDF/{{{RDF}}}Description')
     if desc is None or not desc.get(f'{{{CRS}}}ProcessVersion'):
         raise ValueError('XMP 不包含 Camera Raw 处理版本。')
-    return {'version': desc.get(f'{{{CRS}}}Version', '17.3'),
+    result={'version': desc.get(f'{{{CRS}}}Version', '17.3'),
             'process_version': desc.get(f'{{{CRS}}}ProcessVersion'),
             'kind': 'preset' if desc.get(f'{{{CRS}}}PresetType') else 'sidecar'}
+    if desc.get(f'{{{CRS}}}WhiteBalance')=='As Shot':
+        try:
+            from .models import WhiteBalance
+            wb=WhiteBalance(mode='custom',temperature=desc.get(f'{{{CRS}}}Temperature'),tint=desc.get(f'{{{CRS}}}Tint','0'))
+            result['white_balance_reference']={'temperature':wb.temperature,'tint':wb.tint,'estimated':False,'source':'XMP 拍摄设置读数'}
+        except ValueError:pass
+    return result
 
-def build_xmp(params, name, mode, template, curve=None, regions=None, directory=None, curves=None):
+def build_xmp(params, name, mode, template, curve=None, regions=None, directory=None, curves=None,white_balance=None):
     validate_parameters(params)
     if mode == 'style' and PHOTO_ONLY.intersection(params):
         raise ValueError('通用预设中出现照片专属参数。')
@@ -36,6 +43,14 @@ def build_xmp(params, name, mode, template, curve=None, regions=None, directory=
              'SupportsOutputReferred': 'False', 'CameraModelRestriction': '',
              'Version': template['version'], 'ProcessVersion': template['process_version'], 'HasSettings': 'True'}
     attrs.update({k: str(v) for k, v in params.items()})
+    wb_mode=(white_balance or {}).get('mode','custom' if 'Temperature' in params or 'Tint' in params else 'preserve')
+    if wb_mode not in ('preserve','as_shot','custom'):raise ValueError('白平衡模式无效。')
+    if mode=='style' and wb_mode!='preserve':raise ValueError('通用预设不能固定白平衡。')
+    if wb_mode=='custom':
+        if not {'Temperature','Tint'}<=params.keys():raise ValueError('自定义白平衡必须同时提供色温和色调。')
+        attrs['WhiteBalance']='Custom'
+    elif {'Temperature','Tint'}.intersection(params):raise ValueError('非自定义模式不能写入固定色温。')
+    elif wb_mode=='as_shot':attrs['WhiteBalance']='As Shot'
     for key, value in attrs.items():
         desc.set(f'{{{CRS}}}{key}', value)
     all_curves = dict(curves or {})

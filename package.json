@@ -1,7 +1,7 @@
 {
   "name": "ai-raw-studio",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -10,7 +10,8 @@
     "test:ui": "playwright test",
     "desktop:dev": "tauri dev",
     "desktop:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-backend.ps1 && tauri build --no-bundle && .venv\\Scripts\\python.exe scripts/package-portable.py",
-    "desktop:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-backend.ps1 && tauri build --bundles nsis"
+    "desktop:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-backend.ps1 && tauri build --bundles nsis",
+    "icons:generate": "tauri icon src-tauri/icons/source.svg -o src-tauri/icons"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

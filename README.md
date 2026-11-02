@@ -4,6 +4,40 @@
 
 仓库包含源码、测试与构建脚本。原始 NEF、个人 XMP、API Key、本地历史、模型权重、依赖环境和构建产物不随源码提交。首次使用需安装依赖并运行模型下载脚本；需要样片的集成测试请自行在项目根目录准备 `DSC_0002.NEF` 和 `DSC_0002.xmp`。分割模型的来源及许可证保留在 `backend/assets/segformer` 中。
 
+## 0.7.0：独立胶片模拟
+
+- 内置20款胶片、8款相纸／印片；反转片直接扫描，不应用相纸或冲印曝光。默认启用引擎自动曝光，可按需关闭。
+- 胶片模拟由 spektrafilm 0.3.4 驱动，固定上游提交 `3bb2c2d2801ff68b92019cf1dbcbb133d60832bc`。内置胶片／相纸选择、胶片与冲印曝光、自动曝光、颗粒和高光晕染。首次里程碑不包含 AI 自动挑选胶片或 LUT 导出。
+- NEF 重新解码为 16 位线性 ProPhoto RGB，再浮点模拟胶片、冲印、扫描，输出带 sRGB ICC 的 JPEG 或真实 16 位 RGB TIFF。缩图预览最长边 960；成片使用 NEF 全尺寸；从完整成片缩小生成对比图。预览与成片的颗粒、光晕和随机效果可能不同。
+- 与 Camera Raw 调色并行保存：上方的 XMP 调色不叠加到胶片成片，也不声称 XMP 能还原该效果。使用拍摄白平衡。可单独沿用已启用选区的局部曝光（包含画笔修正和羽化）；其他局部参数不沿用。任务提交时固定参数和选区快照。
+- 引擎使用独立 Python 3.13 进程，无需 API Key，全程本地。提供任务进度、取消、失败提示、重启恢复与历史结果；关闭主服务时引擎随之结束。一次只运行一个胶片任务，渲染期间保护原片不被删除。
+- 源码运行先执行 `.venv\Scripts\python.exe -X utf8 scripts/prepare-film.py`，首次需要下载 Python 和依赖；哈希锁定依赖在 `requirements-film.lock`。Windows 便携版已自带运行环境，用户无需安装 Python。
+- 本项目源码以 GPLv3 提供；spektrafilm 代码同为 GPLv3，胶片数据采用 CC BY-SA 4.0。保留署名、原始许可及匹配源码；见 `THIRD-PARTY-NOTICES.md`。模型权重另受原模型许可约束。
+
+## 0.6.0：白平衡、完整色彩分级与暗角
+
+- 白平衡提供跟随 AI、保持当前、拍摄设置、自定义四种选择。自定义色温 2000–50000 K、色调 -150–150，照片专属 XMP 使用 WhiteBalance=Custom 与 Temperature/Tint；拍摄设置使用 As Shot；保持当前省略白平衡。通用风格不固定白平衡。
+- 白平衡是照片纠正，不随风格强度缩放。预览优先使用随照片导入的 XMP 中 As Shot 色温/色调作参考；旧记录也会从已存模板读取。缺少可用参考时使用明确标记的5500K/0估计值，不称作相机实测值。自定义预览只近似模拟冷暖与色偏，不复刻 Adobe 相机色彩配置。
+- 色彩分级补齐阴影、中间调、高光与全局的色相、饱和度、明度共12项，以及混合和平衡。色相角、混合、平衡不随强度缩放，饱和度与明度按强度缩放。预览现在响应混合与平衡，保持中性设置不改变画面。
+- 裁切后暗角提供数量、中点、圆度、羽化、高光保护与高光优先/颜色优先/绘制叠加三种样式。负数量压暗、正数量提亮边缘；只有数量按风格强度缩放。高光保护用于负暗角且不适用于绘制叠加。
+- AI 分析支持 correction.white_balance、look 的明度/中间调/混合字段和 look.vignette。增量修改支持启用/恢复白平衡，以及只改色温、中间调或暗角；所有新字段参与预览、检查、保存、撤销和 XMP 导出。
+- 旧分析缺少新字段时保持白平衡、分级明度0、暗角数量0；重新分析后让 AI 评估新参数。已有蒙版和照片数据不重建。
+- 字段依据：Adobe Camera Raw 命名空间 https://developer.adobe.com/xmp/docs/xmp-namespaces/crs/ ，色彩分级说明 https://helpx.adobe.com/camera-raw/desktop/using/make-color-tonal-adjustments-camera.html ，暗角说明 https://helpx.adobe.com/lightroom-classic/desktop/process-and-develop-photos/retouch-photos.html ，ExifTool 的原生 CRS 字段及暗角样式枚举 https://github.com/exiftool/exiftool/blob/master/lib/Image/ExifTool/XMP.pm 。
+- 不使用只适用于 RGB 图片的 IncrementalTemperature/IncrementalTint 冒充 NEF 的绝对色温；也不将光学面板 VignetteAmount 当作裁切后暗角。
+
+## 0.5.2：应用图标重绘
+
+- 重绘六叶实心光圈标识，去除旧 SVG 的交叉折线与多余圆环，保留深绿底和浅色主体，提升任务栏小尺寸辨识度。
+- 程序 ICO、各尺寸 PNG、界面标识和浏览器图标统一从 `src-tauri/icons/source.svg` 生成；`npm run icons:generate` 可重新生成图标资源。
+- 图标包含多种尺寸，构建后核对 Windows 可执行文件内嵌图标；更新桌面快捷方式到新版本路径，避免继续显示旧程序图标。
+
+## 0.5.1：选区预览刷新修复
+
+- 修复预览请求更新时提前释放仍在使用的图片地址，导致 AI 分析、局部选区更新后出现“选区预览加载失败”。现在图片地址在被新图替换或组件关闭后才释放，取消请求不再销毁当前画面。
+- 选区预览请求支持取消，忽略过期响应；真正加载失败时显示明确原因，并提供“重试选区预览”。未加载成功时暂停画笔，避免在旧画面上误绘。
+- AI 更新局部参数后，同步刷新当前选区滑块。保留原片、蒙版和已保存参数。
+- 增加延迟刷新时图片地址仍可读取、替换后及时释放、损坏选区响应重试恢复的回归测试。
+
 ## 0.5.0：效果检查与有限自动修正
 
 - 在本机对照原始显示预览和实际参数渲染结果，检测新增接近纯白、接近纯黑、高饱和像素及暗部较大提亮；全图与启用的人物选区分别检查。不将原图既有的暗调或白色区域直接当成错误。
@@ -38,7 +72,7 @@
 - AI 和模板的风格参数随强度缩放；手动参数和点曲线优先，不随强度再次缩放。校准的色相是有符号偏移，随强度缩放；色彩分级的色相角与曲线分界点不缩放。
 - XMP 使用 Adobe 原生 ShadowTint、RedHue/RedSaturation 等校准字段，Parametric* 参数曲线字段，以及 ToneCurvePV2012 / Red / Green / Blue 四个点序列。映射参考 Adobe 官方示例：https://github.com/AdobeDocs/cis-photoshop-api-docs/blob/main/sample-code/lr-sample-app/crs.xml 。
 - 预览近似模拟新增参数；校准依赖 Adobe 的相机配置文件，参数曲线与点曲线插值也可能和 Adobe 不同。导出为标准参数，不声称本地渲染与 Camera Raw 像素一致。
-- 本版没有加入光学、几何、降噪、相机配置文件等完整面板，也未增加色彩分级的中间调与明度控件。
+- 0.3.0 当时未加入光学、几何、降噪、相机配置文件等完整面板；色彩分级中间调和明度已在0.6.0补齐。
 
 ## 0.2.1：AI 返回校验修复
 
@@ -61,7 +95,7 @@
 
 ## 直接使用
 
-便携版位于 `E:\Prj\camera_raw_tool\release\AI RAW Studio 0.5.0`，运行里面的 `AI RAW Studio.exe`。也可解压 `release\AI-RAW-Studio-0.5.0-win-x64.zip` 后运行。必须保留同目录的 `server` 文件夹。无需 Python 或 Node；Windows 需要 WebView2。
+便携版位于 `E:\Prj\camera_raw_tool\release\AI RAW Studio 0.6.0`，运行里面的 `AI RAW Studio.exe`。也可解压 `release\AI-RAW-Studio-0.6.0-win-x64.zip` 后运行。必须保留同目录的 `server` 文件夹。无需 Python 或 Node；Windows 需要 WebView2。
 
 1. 在「模型与 API 设置」填写 DeepSeek API Key。默认地址 `https://api.deepseek.com`，模型 `deepseek-flash`（DeepSeek V4.1 Flash 官方接口名）。
 2. 导入 NEF；可同时选择 XMP。支持拖入文件。本版针对提供的 Nikon Z 30 样片验证。
@@ -82,7 +116,7 @@
 - 照片专属模式：含当前照片曝光、高光、阴影、白色色阶纠正和风格。仍为可导入的预设文件，不覆盖同名 sidecar。
 - 通用风格模式：省略照片专属曝光、高光、阴影、白色色阶和白平衡；保留风格对比度、黑色色阶、色彩等。
 - 强度仅缩放风格层；照片基础纠正不随风格强度消失。重新选风格、切换导出模式或切换 AI 全局计划会清除全局手动微调；改变强度保留手动值。
-- 白平衡保留当前设置，不从 RGB 猜测绝对色温。裁切仅提供建议。
+- 白平衡可保持当前、拍摄设置或自定义；缺少准确参考时明确标记预览估计值，不声称由 RGB 精确反推色温。裁切仅提供建议。
 - 预览近似模拟基础明暗、HSL、校准、四条点曲线、参数曲线、分离色调、质感和颗粒。LibRaw 与 Adobe 的相机配置文件和色调映射不同，预览不保证与 ACR 一致。
 - 批处理、审美学习和相机配置文件编辑不在本版范围。
 

@@ -1,13 +1,14 @@
 import shutil
 import zipfile
+import subprocess
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-target = root / 'release' / 'AI RAW Studio 0.5.0'
+target = root / 'release' / 'AI RAW Studio 0.7.0'
 target.mkdir(parents=True, exist_ok=True)
 shutil.copy2(root / 'src-tauri/target/release/ai-raw-studio.exe', target / 'AI RAW Studio.exe')
 shutil.copytree(root / 'dist/raw-studio-server', target / 'server', dirs_exist_ok=True)
-(target / '使用说明.txt').write_text('''AI RAW Studio 0.5.0 — Windows x64 便携版
+(target / '使用说明.txt').write_text('''AI RAW Studio 0.7.0 — Windows x64 便携版
 
 完整解压后运行 AI RAW Studio.exe，请保留旁边的 server 文件夹。
 无需安装 Python、Node.js 或 Rust。需要 Windows WebView2 运行时。
@@ -18,7 +19,11 @@ shutil.copytree(root / 'dist/raw-studio-server', target / 'server', dirs_exist_o
 3. 点击 AI 分析，按需输入风格意向。
 4. 在“局部选区与调整”中查看选区，用添加、擦除或框选修正边缘。
    可以点击“细化边缘”，逐区调整曝光、冷暖、饱和度和蓝色曲线，点击“应用局部调整”。
-5. 在右侧 Camera Raw 参数面板调整 HSL、曲线、校准等参数。点曲线修改后点击“应用曲线”。
+5. 在白平衡面板选择跟随AI、保持当前、拍摄设置或自定义色温/色调。
+   固定白平衡仅供照片专属模式，通用风格不包含它；缺少准确参考时预览会标记估计值。
+   色彩分级提供阴影、中间调、高光、全局的色相/饱和度/明度，以及混合和平衡。
+   效果面板提供裁切后暗角数量、中点、圆度、羽化、高光保护和三种样式。
+   在右侧 Camera Raw 参数面板还可调整 HSL、曲线、校准等参数。点曲线修改后点击“应用曲线”。
    HSL 提供八色的色相、饱和度、明亮度；校准提供阴影色调与 RGB 三原色。
    曲线提供 RGB、红、绿、蓝通道点曲线，以及参数曲线四区域和三分界。
    手动参数不随风格强度缩放；“恢复方案值”返回当前 AI 或模板参数。
@@ -49,7 +54,48 @@ Key 默认只保存在后端内存中，可选 Windows 凭据管理器保存。
 ''', encoding='utf-8-sig')
 shutil.copy2(root/'backend/assets/segformer/LICENSE.txt',target/'MODEL-LICENSE.txt')
 shutil.copy2(root/'backend/assets/segformer/SOURCE.txt',target/'MODEL-SOURCE.txt')
-archive = root / 'release/AI-RAW-Studio-0.5.0-win-x64.zip'
+for name in ['LICENSE','THIRD-PARTY-NOTICES.md']:
+    shutil.copy2(root/name,target/name)
+shutil.copytree(root/'third_party/spektrafilm',target/'third_party/spektrafilm',dirs_exist_ok=True)
+license_target=target/'THIRD-PARTY-LICENSES'
+for environment in [root/'.venv/Lib/site-packages', root/'.tools/film-runtime/Lib/site-packages']:
+    for info in environment.glob('*.dist-info'):
+        for file in info.rglob('*'):
+            if file.is_file() and (any(word in file.name.lower() for word in ['license','copying','notice']) or file.name=='METADATA'):
+                destination=license_target/environment.parents[1].name/info.name/file.relative_to(info)
+                destination.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copy2(file,destination)
+# Include the exact application sources, including pending authorized changes.
+# Personal NEFs/XMPs, credentials, caches, binaries and model weights are ignored.
+source_files=subprocess.check_output(['git','ls-files','-z','--cached','--others','--exclude-standard'],cwd=root).decode('utf-8').split('\0')
+source_zip=target/'AI-RAW-Studio-0.7.0-source.zip'
+with zipfile.ZipFile(source_zip,'w',zipfile.ZIP_DEFLATED) as source:
+    for name in sorted(set(source_files)):
+        if not name:continue
+        path=root/name
+        if path.suffix.lower()=='.nef' or (path.suffix.lower()=='.xmp' and 'tests' not in path.parts):continue
+        if path.is_file() and not any(part in {'.env','.git','.tools','.venv','node_modules','work','release','target','dist'} for part in Path(name).parts):
+            source.write(path,name)
+(target/'胶片模拟说明.txt').write_text('''胶片模拟 — AI RAW Studio 0.7.0
+
+导入 NEF 后，在效果对比下方找到“胶片模拟”。无需配置 AI Key。
+内置20款胶片和8款相纸／印片。反转片直接扫描，不应用相纸或冲印曝光。
+默认启用自动曝光；可按需关闭。选择胶片和相纸，点击“生成胶片预览”。拖动分割线对比处理前后。
+调整胶片曝光、冲印曝光、颗粒、高光晕染后，需重新生成。
+“渲染 16 位 TIFF”或“渲染 JPEG”从全尺寸 NEF 处理；完成后点击“保存成片”。
+本机5600×3728样图：预览约7秒（缓存热启动），全尺寸TIFF约2分钟。
+全尺寸计算占用较多内存，请逐张渲染；可以取消。首次启动会编译计算内核。
+使用拍摄白平衡。上方 Camera Raw 的调色不叠加到胶片成片；胶片效果不写进 XMP。
+可沿用已启用选区的局部曝光；需先保存局部参数和画笔修正。其他局部滑块不沿用。
+胶片曝光会改变负片密度；引擎会平衡冲印曝光。需要直接改变成片明暗时，也请调节冲印曝光。
+缩图预览与全尺寸的颗粒和光晕可能不同；请检查最终成片。
+成片为 sRGB，TIFF 是真实 16 位 RGB，带颜色配置。
+
+Film modeling powered by spektrafilm, by Andrea Volpato.
+https://github.com/andreavolpato/spektrafilm
+程序源码 GPLv3；胶片配置 CC BY-SA 4.0。原始许可证和对应源码随包提供。
+''',encoding='utf-8-sig')
+archive = root / 'release/AI-RAW-Studio-0.7.0-win-x64.zip'
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=5) as bundle:
     for file in sorted(target.rglob('*')):
         if file.is_file():

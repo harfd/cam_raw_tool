@@ -12,7 +12,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
-from . import ai_engine, settings, segmentation, quality
+from . import ai_engine, settings, segmentation, quality, film
 from .models import AnalysisRequest, ExportRequest, RenderRequest, SettingsInput, RegionCreate, RegionUpdate, BrushStroke, RefinementRequest, QualityRequest
 from .refinement import merge_refinement, undo_refinement, context_images
 from .parameter_engine import STYLES, RANGES, build_recipe
@@ -52,6 +52,17 @@ def ready_job(job_id):
     job = require_job(job_id)
     if 'metrics' not in job:
         raise HTTPException(409, '照片尚未完成解码')
+    return populate_wb_reference(job)
+
+def populate_wb_reference(job):
+    job_id=job['id']
+    if 'white_balance_reference' not in job['metrics']:
+        reference=job.get('template',{}).get('white_balance_reference')
+        template_path=JOBS_DIR/job_id/'template.xmp'
+        if reference is None and template_path.exists():
+            try:reference=template_info(template_path).get('white_balance_reference')
+            except Exception:pass
+        job['metrics']['white_balance_reference']=reference or {'temperature':5500,'tint':0,'source':'估计参考值','estimated':True}
     return job
 
 def decode_task(job_id):
@@ -61,6 +72,7 @@ def decode_task(job_id):
     try:
         metadata, metrics, warnings = decode(JOBS_DIR / job_id / 'source.NEF', JOBS_DIR / job_id)
         job.update(status='ready', metadata=metadata, metrics=metrics, warnings=warnings)
+        populate_wb_reference(job)
     except Exception:
         logging.exception('RAW decode failed: %s', job_id)
         job.update(status='failed', error='RAW 解码失败。请确认文件完整且相机格式受 LibRaw 支持。')
@@ -89,12 +101,13 @@ def analysis_task(job_id, intent, conf, key,auto_correct=False):
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok', 'version': '0.5.0'}
+    return {'status': 'ok', 'version': '0.7.0'}
 
 def upgrade_preview(job):
     if job['metrics'].get('preview_version', 1) < 2:
         metadata, metrics, warnings = decode(JOBS_DIR / job['id'] / 'source.NEF', JOBS_DIR / job['id'])
         job.update(metadata=metadata, metrics=metrics, warnings=warnings)
+    populate_wb_reference(job)
 
 @app.get('/api/settings')
 def get_settings():
@@ -116,6 +129,45 @@ def styles():
 @app.get('/api/jobs')
 def jobs():
     return list_jobs()
+
+@app.get('/api/film/catalog')
+def film_catalog():
+    return film.catalog()
+
+@app.get('/api/jobs/{job_id}/film')
+def film_state(job_id: str):
+    ready_job(job_id)
+    return film.state(job_id)
+
+@app.post('/api/jobs/{job_id}/film/render', status_code=202)
+def film_render(job_id: str, body: film.FilmRequest):
+    with lock:
+        job = editable_job(job_id)
+        try:
+            return film.start(job, body)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from None
+
+@app.post('/api/jobs/{job_id}/film/cancel')
+def film_cancel(job_id: str):
+    ready_job(job_id)
+    film.cancel(job_id)
+    return film.state(job_id)
+
+@app.get('/api/jobs/{job_id}/film/{operation}/{kind}')
+def film_file(job_id: str, operation: str, kind: str):
+    ready_job(job_id)
+    if kind not in ('preview', 'before', 'download'):
+        raise HTTPException(404, '胶片文件不存在。')
+    try:
+        path = film.result_file(job_id, operation, kind)
+        if not path.is_file():
+            raise FileNotFoundError()
+    except (ValueError, FileNotFoundError):
+        raise HTTPException(404, '胶片结果不存在或尚未完成。') from None
+    return FileResponse(path, media_type='image/tiff' if path.suffix == '.tif' else 'image/jpeg', filename=path.name)
 
 @app.get('/api/jobs/{job_id}')
 def job_detail(job_id: str):
@@ -216,7 +268,7 @@ def check_quality(job_id:str,body:QualityRequest):
         return job
 
 def correction_task(job_id,body,operation,prior_status):
-    job=require_job(job_id)
+    job=ready_job(job_id)
     try:
         job,entry=quality.correct(job,body.state,JOBS_DIR/job_id,body.protect_manual)
         if entry:job['refinement_history']=(job.get('refinement_history',[])+[entry])[-20:]
@@ -242,12 +294,12 @@ def correct_quality(job_id:str,body:QualityRequest):
         return job
 
 def refinement_task(job_id,body,conf,key,operation,prior_status):
-    job=require_job(job_id)
+    job=ready_job(job_id)
     try:
         recipe=build_recipe(job['metrics'],job.get('decision'),body.state)
         directory=JOBS_DIR/job_id
         current=render(directory/'original.jpg',recipe['parameters'],recipe['curve'],
-                       segmentation.selected_regions(job,body.state),directory,curves=recipe['curves'])
+                       segmentation.selected_regions(job,body.state),directory,curves=recipe['curves'],white_balance=recipe['white_balance'])
         context,mask_image=context_images(job,body.state,recipe,current,directory)
         patch=ai_engine.refine(directory/'ai.jpg',current,job['metrics'],body.instruction,context,conf,key,
                                lambda patch:merge_refinement(job,body.state,patch),
@@ -306,14 +358,14 @@ def preview(job_id: str, body: RenderRequest):
     job = ready_job(job_id)
     recipe = compute(job, body)
     return Response(render(JOBS_DIR / job_id / 'original.jpg', recipe['parameters'], recipe['curve'],
-                             segmentation.selected_regions(job, body), JOBS_DIR / job_id, curves=recipe['curves']), media_type='image/jpeg')
+                             segmentation.selected_regions(job, body), JOBS_DIR / job_id, curves=recipe['curves'],white_balance=recipe['white_balance']), media_type='image/jpeg')
 
 @app.post('/api/jobs/{job_id}/export')
 def export(job_id: str, body: ExportRequest):
     job = ready_job(job_id)
     recipe = compute(job, body)
     data = build_xmp(recipe['parameters'], body.name, body.mode, job['template'], recipe['curve'],
-                     segmentation.selected_regions(job, body), JOBS_DIR / job_id, curves=recipe['curves'])
+                     segmentation.selected_regions(job, body), JOBS_DIR / job_id, curves=recipe['curves'],white_balance=recipe['white_balance'])
     return Response(data, media_type='application/rdf+xml', headers={'Content-Disposition': 'attachment; filename="AI_RAW_Studio.xmp"'})
 
 def editable_job(job_id):
@@ -429,12 +481,13 @@ def delete_job(job_id: str):
     from .store import connect
     with lock:
         job = require_job(job_id)
-        if job['status'] in ('queued', 'decoding', 'analyzing','refining','correcting'):
+        if job['status'] in ('queued', 'decoding', 'analyzing','refining','correcting') or film.busy(job_id):
             raise HTTPException(409, '请等待任务结束再删除。')
         directory = JOBS_DIR / job_id
-        for path in directory.iterdir():
-            path.unlink()
-        directory.rmdir()
+        import shutil
+        if not directory.resolve().is_relative_to(JOBS_DIR.resolve()) or directory.resolve() == JOBS_DIR.resolve():
+            raise HTTPException(400, '缓存位置无效，无法删除。')
+        shutil.rmtree(directory)
         with connect() as db:
             db.execute('DELETE FROM jobs WHERE id=?', (job_id,))
     return {'deleted': True}

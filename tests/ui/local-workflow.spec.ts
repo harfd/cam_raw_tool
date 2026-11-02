@@ -21,6 +21,7 @@ test('真实本地分割、画笔修正、局部参数与蒙版导出',async({pa
  expect(region.adjustments.whites).toBe(-20);expect(region.adjustments.texture).toBe(10);
  await expect(page.getByText('手动局部调整。',{exact:false})).toBeVisible();
  const canvas=page.getByLabel('局部选区编辑画布');await canvas.scrollIntoViewIfNeeded();
+ await expect(canvas).toHaveAttribute('aria-busy','false');
  const rect=(await canvas.boundingBox())!;
  const painted=page.waitForResponse(r=>r.url().endsWith('/paint'));
  await page.mouse.move(rect.x+rect.width*.8,rect.y+rect.height*.25);await page.mouse.down();

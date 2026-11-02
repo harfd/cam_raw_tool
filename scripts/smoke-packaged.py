@@ -18,7 +18,7 @@ try:
         for _ in range(30):
             try:
                 health=client.get('/api/health')
-                assert health.status_code == 200 and health.json()['version']=='0.5.0'
+                assert health.status_code == 200 and health.json()['version']=='0.7.0'
                 break
             except httpx.ConnectError:
                 time.sleep(.2)
@@ -45,7 +45,8 @@ try:
         assert client.post(f'/api/jobs/{job_id}/refine',json={'instruction':'x'}).status_code==422
         assert client.post(f'/api/jobs/{job_id}/refine/undo',json={}).status_code==400
         body = {'style': 'cinematic', 'mode': 'photo', 'strength': .7, 'name': 'AI RAW Studio 验证',
-                'overrides':{'RedHue':18,'BlueSaturation':-12,'ParametricLights':10,'HueAdjustmentGreen':-16},
+                'overrides':{'RedHue':18,'BlueSaturation':-12,'ParametricLights':10,'HueAdjustmentGreen':-16,'ColorGradeMidtoneHue':35,'ColorGradeMidtoneSat':8,'ColorGradeMidtoneLum':7,'ColorGradeBlending':70,'PostCropVignetteAmount':-18,'PostCropVignetteStyle':2,'PostCropVignetteFeather':80},
+                'white_balance':{'mode':'custom','temperature':6100,'tint':8},
                 'curve_overrides':{'blue':[{'x':0,'y':5},{'x':128,'y':140},{'x':255,'y':255}]}}
         assert client.post(f'/api/jobs/{job_id}/preview', json=body).content.startswith(b'\xff\xd8')
         segmentation = client.post(f'/api/jobs/{job_id}/segment', json={})
@@ -61,6 +62,8 @@ try:
         RDF='http://www.w3.org/1999/02/22-rdf-syntax-ns#'
         desc=ET.fromstring(exported.content).find(f'{{{RDF}}}RDF/{{{RDF}}}Description')
         assert desc.get(f'{{{CRS}}}RedHue')=='18' and desc.get(f'{{{CRS}}}ParametricLights')=='10'
+        assert desc.get(f'{{{CRS}}}WhiteBalance')=='Custom' and desc.get(f'{{{CRS}}}Temperature')=='6100' and desc.get(f'{{{CRS}}}Tint')=='8'
+        assert desc.get(f'{{{CRS}}}ColorGradeMidtoneLum')=='7' and desc.get(f'{{{CRS}}}PostCropVignetteAmount')=='-18'
         assert [p.text for p in desc.findall(f'{{{CRS}}}ToneCurvePV2012Blue/{{{RDF}}}Seq/{{{RDF}}}li')]==['0, 5','128, 140','255, 255']
         (root / 'work' / 'ACR_validation.xmp').write_bytes(exported.content)
         print(json.dumps({'packaged_service': 'passed', 'raw_decode': 'passed', 'preview': 'passed', 'local_model': 'passed', 'mask_export': 'passed','color_panels':'passed','refinement_routes':'passed','quality_check_and_correction':'passed'}, ensure_ascii=False))
