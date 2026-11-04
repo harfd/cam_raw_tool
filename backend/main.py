@@ -12,7 +12,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
-from . import ai_engine, settings, segmentation, quality, film, acr_validation
+from . import ai_engine, settings, segmentation, quality, film, acr_validation, photoshop
 from .models import AnalysisRequest, ExportRequest, RenderRequest, SettingsInput, RegionCreate, RegionUpdate, BrushStroke, RefinementRequest, QualityRequest
 from .refinement import merge_refinement, undo_refinement, context_images
 from .parameter_engine import STYLES, RANGES, build_recipe
@@ -103,7 +103,7 @@ def analysis_task(job_id, intent, conf, key,auto_correct=False):
 
 @app.get('/api/health')
 def health():
-    return {'status': 'ok', 'version': '0.8.0'}
+    return {'status': 'ok', 'version': '0.9.0'}
 
 def upgrade_preview(job):
     if job['metrics'].get('preview_version', 1) < 2:
@@ -490,7 +490,7 @@ def delete_job(job_id: str):
     from .store import connect
     with lock:
         job = require_job(job_id)
-        if job['status'] in ('queued', 'decoding', 'analyzing','refining','correcting') or film.busy(job_id):
+        if job['status'] in ('queued', 'decoding', 'analyzing','refining','correcting') or film.busy(job_id) or photoshop.busy(job_id):
             raise HTTPException(409, '请等待任务结束再删除。')
         directory = JOBS_DIR / job_id
         import shutil
@@ -520,12 +520,54 @@ def create_validation(job_id: str, body: RenderRequest):
         return acr_validation.create(job,body,compute(job,body),JOBS_DIR/job_id)
 
 
+@app.get('/api/photoshop')
+def photoshop_connection():
+    return photoshop.catalog()
+
+
+@app.post('/api/jobs/{job_id}/validation/render', status_code=202)
+def render_validation(job_id: str, body: RenderRequest, refresh: bool=False):
+    with lock:
+        job=editable_job(job_id)
+        recipe=compute(job,body)
+        signature=acr_validation.signature(job,body)
+        roots=sorted((JOBS_DIR/job_id/'validation').glob('*/snapshot.json'),key=lambda p:p.stat().st_mtime,reverse=True)
+        for path in roots:
+            record=json.loads(path.read_text('utf-8'))
+            task=photoshop.state(path.parent)
+            if record['signature']==signature and task and (task['status']=='running' or (not refresh and task['status']=='complete' and task.get('bridge_version')==1 and (path.parent/'report.json').is_file())):
+                return validation_record(path.parent)
+        if photoshop.busy():raise HTTPException(409,'Photoshop 正在生成另一份预览，请等待完成后重试。')
+        conf=photoshop.catalog()
+        if not conf['available']:raise HTTPException(400,conf['message'])
+        try:
+            record=acr_validation.create(job,body,recipe,JOBS_DIR/job_id,package=False)
+            record['photoshop']=photoshop.start(job_id,record)
+            return record
+        except ValueError as exc:raise HTTPException(400,str(exc)) from None
+        except RuntimeError as exc:raise HTTPException(409,str(exc)) from None
+
+
 def validation_root(job_id, snapshot_id):
     require_job(job_id)
     if not re.fullmatch('[a-f0-9]{32}',snapshot_id):raise HTTPException(404,'对照快照不存在。')
     root=JOBS_DIR/job_id/'validation'/snapshot_id
     if not (root/'snapshot.json').exists():raise HTTPException(404,'对照快照不存在。')
     return root
+
+
+def validation_record(root):
+    record=json.loads((root/'snapshot.json').read_text('utf-8'))
+    task=photoshop.state(root)
+    if task:record['photoshop']=task
+    if (not task or task['status']=='complete') and (root/'report.json').exists():
+        record['report']=json.loads((root/'report.json').read_text('utf-8'))
+    return record
+
+
+@app.get('/api/jobs/{job_id}/validation/{snapshot_id}')
+def validation_detail(job_id: str,snapshot_id: str):
+    with lock:return validation_record(validation_root(job_id,snapshot_id))
 
 
 @app.get('/api/jobs/{job_id}/validation/{snapshot_id}/{kind}')
@@ -556,6 +598,4 @@ def latest_validation(job_id: str):
         roots=list((JOBS_DIR/job_id/'validation').glob('*/snapshot.json'))
         if not roots:return None
         root=max(roots,key=lambda p:p.stat().st_mtime).parent
-        record=json.loads((root/'snapshot.json').read_text('utf-8'))
-        if (root/'report.json').exists():record['report']=json.loads((root/'report.json').read_text('utf-8'))
-        return record
+        return validation_record(root)

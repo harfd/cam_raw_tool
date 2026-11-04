@@ -4,6 +4,27 @@
 
 仓库包含源码、测试与构建脚本。原始 NEF、个人 XMP、API Key、本地历史、模型权重、依赖环境和构建产物不随源码提交。首次使用需安装依赖并运行模型下载脚本；需要样片的集成测试请自行在项目根目录准备 `DSC_0002.NEF` 和 `DSC_0002.xmp`。分割模型的来源及许可证保留在 `backend/assets/segformer` 中。
 
+## 0.9.0：通过 Photoshop 一键生成 ACR 实际预览
+
+- 在“高精度预览与 ACR 对照”点击“生成 ACR 实际预览”。程序冻结当前方案，在私有目录复制 NEF、生成同名 sidecar XMP，通过 Windows COM 调用 Photoshop／Camera Raw，自动渲染、读回成片并计算差异；整个界面流程不再需要用户保存验证包、手动导入导出成片。
+- 使用本机已注册的桌面版 Photoshop，需要安装可打开当前相机 RAW 的 Camera Raw。首次调用可能启动 Photoshop。通过 `Photoshop.Application.DoJavaScript` 执行本地脚本；不依赖聊天中的桌面控制连接，不需要点击坐标或安装 Photoshop 扩展。未安装时显示原因，可重新检测。
+- 原片副本的 ACR 基准为 Adobe Standard，关闭额外自动曝光、裁切、透视及可关闭的镜头变形校正；打开时指定使用该副本设置、16位 sRGB。保持当前白平衡在副本上采用拍摄设置；自定义及拍摄白平衡按当前方案传递。没有将导入模板的既有调色叠加到当前方案。
+- 回读 Photoshop 文档的 XMP，核对实际参数、RGB／各通道曲线、局部调整、笔刷位置及局部蓝色曲线；设置缺失、配置文件不匹配或画幅错误时显示失败，不把未验证结果当作当前方案的成片。ACR 版本来自 Photoshop 已加载插件的信息，另保留 XMP 设置版本。
+- 渲染以16位带 ICC 的全尺寸 TIFF中转，比较仍归一到8位 sRGB 显示像素和最长边1600的本地参考。完成后清理临时 TIFF，保留参考、实际预览、差异图、报告和复现用原片副本／XMP。联动不消耗 AI 额度。
+- 显示等待状态，后台串行调用 Photoshop，防止并发渲染；处理中不能删除原片任务。重开照片可恢复结果或继续查看进度，异常退出的任务会标记中断。相同方案可命中缓存，也可点击“重新生成”强制渲染；参数或选区变更后提示过期。
+- 只关闭联动创建的临时文档，恢复之前的活动文档与 Photoshop 对话框设置；不退出 Photoshop。调用超时为4分钟；超时后 Photoshop 可能仍在处理，请确认其空闲后重试。
+- 本机真实验证：Photoshop 26.6.0 / Camera Raw 17.3，Nikon Z30 NEF。通过中性、曝光变化、白平衡／HSL／曲线／颗粒／暗角、局部曝光与蓝色曲线四组实际渲染；验证曝光改变会改变成片，局部蒙版只主要影响所选区域。此验证不等于本地模拟已与 Adobe 渲染一致。
+
+开发者可显式运行真实 Photoshop 验证（会调用本机 Photoshop）：
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 scripts/smoke-photoshop.py
+$env:RAW_STUDIO_TEST_PHOTOSHOP='1'
+npm run test:ui -- tests/ui/acr-validation.spec.ts
+```
+
+常规单元测试不启动 Photoshop。以下0.8.0的手动验证包和命令行入口保留为历史开发工具，软件界面已使用上方自动流程。
+
 ## 0.8.0：高精度预览与 ACR 对照验证
 
 - RAW先解码为16位线性sRGB，再明确应用sRGB传递函数，避免把LibRaw默认BT.709传递曲线误标为sRGB。参数依据：[rawpy Params](https://letmaik.github.io/rawpy/api/rawpy.Params.html)。

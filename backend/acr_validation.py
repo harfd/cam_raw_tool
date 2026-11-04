@@ -24,7 +24,7 @@ def signature(job,state):
     return hashlib.sha256(json.dumps(payload,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 
-def create(job,state,recipe,directory):
+def create(job,state,recipe,directory,package=True):
     ident=uuid4().hex
     root=directory/'validation'/ident;root.mkdir(parents=True)
     try:
@@ -52,18 +52,19 @@ def create(job,state,recipe,directory):
 导入成片按 ICC 转换到 sRGB 的8位显示像素后，缩小到本地参考尺寸比较。不要用截图代替成片。
 局部蒙版和质感、颗粒算法仍是近似；本地预览与 Adobe 的相机配置文件、基础曲线不同。
 '''
-        with zipfile.ZipFile(root/'package.zip','w',zipfile.ZIP_DEFLATED,compresslevel=1) as archive:
-            archive.write(directory/'source.NEF','ACR-check.NEF')
-            for name in ['ACR-check.xmp','reference.png','snapshot.json']:archive.write(root/name,name)
-            archive.writestr('使用说明.txt',instructions)
+        if package:
+            with zipfile.ZipFile(root/'package.zip','w',zipfile.ZIP_DEFLATED,compresslevel=1) as archive:
+                archive.write(directory/'source.NEF','ACR-check.NEF')
+                for name in ['ACR-check.xmp','reference.png','snapshot.json']:archive.write(root/name,name)
+                archive.writestr('使用说明.txt',instructions)
         return record
     except Exception:
         shutil.rmtree(root)
         raise
 
 
-def compare(root,content,assume_srgb=False,acr_version='',camera_profile=''):
-    if len(content)>150*1024*1024:raise ValueError('对照成片超过150 MB。')
+def compare(root,content,assume_srgb=False,acr_version='',camera_profile='',max_bytes=150*1024*1024):
+    if len(content)>max_bytes:raise ValueError(f'对照成片超过{max_bytes//1024//1024} MB。')
     try:
         image=Image.open(io.BytesIO(content))
         if image.format not in ('JPEG','PNG','TIFF') or image.width*image.height>100_000_000:

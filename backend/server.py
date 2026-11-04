@@ -20,6 +20,8 @@ def main():
     recover_jobs()
     from backend.film import recover
     recover()
+    from backend.photoshop import recover as recover_photoshop
+    recover_photoshop()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(('127.0.0.1', args.port))
     sock.listen(128)

@@ -18,7 +18,7 @@ try:
         for _ in range(30):
             try:
                 health=client.get('/api/health')
-                assert health.status_code == 200 and health.json()['version']=='0.8.0'
+                assert health.status_code == 200 and health.json()['version']=='0.9.0'
                 break
             except httpx.ConnectError:
                 time.sleep(.2)
@@ -74,6 +74,24 @@ try:
         assert desc.get(f'{{{CRS}}}ColorGradeMidtoneLum')=='7' and desc.get(f'{{{CRS}}}PostCropVignetteAmount')=='-18'
         assert [p.text for p in desc.findall(f'{{{CRS}}}ToneCurvePV2012Blue/{{{RDF}}}Seq/{{{RDF}}}li')]==['0, 5','128, 140','255, 255']
         (root / 'work' / 'ACR_validation.xmp').write_bytes(exported.content)
+        bridge=client.get('/api/photoshop');bridge.raise_for_status()
+        real_photoshop='not requested'
+        if os.getenv('RAW_STUDIO_SMOKE_PHOTOSHOP')=='1':
+            assert bridge.json()['available'],bridge.json()
+            rendering=client.post(f'/api/jobs/{job_id}/validation/render',json=body)
+            rendering.raise_for_status();actual=rendering.json()
+            assert actual['photoshop']['status']=='running'
+            assert client.delete(f'/api/jobs/{job_id}').status_code==409
+            for _ in range(250):
+                actual=client.get(f"/api/jobs/{job_id}/validation/{actual['id']}").json()
+                if actual['photoshop']['status']!='running':break
+                time.sleep(1)
+            assert actual['photoshop']['status']=='complete',actual
+            assert actual['report']['automation']['verified_mask_nodes']>0
+            assert actual['report']['automation']['input_depth']=='BitsPerChannelType.SIXTEEN'
+            (root/'work/packaged-photoshop-report.json').write_text(json.dumps(actual['report'],ensure_ascii=False,indent=2),encoding='utf-8')
+            real_photoshop='passed'
+        print(json.dumps({'photoshop_bridge':bridge.json()['available'],'real_photoshop_render':real_photoshop},ensure_ascii=False))
         print(json.dumps({'packaged_service': 'passed', 'raw_decode': 'passed', 'preview': 'passed', 'local_model': 'passed', 'mask_export': 'passed','color_panels':'passed','refinement_routes':'passed','quality_check_and_correction':'passed','acr_snapshot_loopback':'passed','full_resolution_detail':'passed'}, ensure_ascii=False))
 finally:
     child.terminate()

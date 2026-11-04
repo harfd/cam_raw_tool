@@ -9,7 +9,7 @@ function canonical(value:any):string {
 }
 export function AcrValidation({job,state,disabled,preview}:{job:any;state:any;disabled:boolean;preview:string}){
  const [snapshot,setSnapshot]=useState<any>(null),[pending,setPending]=useState(false),[error,setError]=useState('');
- const [report,setReport]=useState<any>(null),[assume,setAssume]=useState(false),[version,setVersion]=useState(''),[profile,setProfile]=useState('');
+ const [report,setReport]=useState<any>(null),[connection,setConnection]=useState<any>(null);
  const [before,setBefore]=usePreviewUrl(),[after,setAfter]=usePreviewUrl(),[heat,setHeat]=usePreviewUrl(),[detail,setDetail]=usePreviewUrl();
  const [position,setPosition]=useState({x:.5,y:.5}),[split,setSplit]=useState(50),[pixel,setPixel]=useState(false);
  const regionBasis=(job.regions||[]).map((r:any)=>Object.fromEntries(['id','enabled','revision','feather','adjustments'].map(k=>[k,r[k]??null])));
@@ -17,7 +17,14 @@ export function AcrValidation({job,state,disabled,preview}:{job:any;state:any;di
  const activeDetail=useRef(detailKey);activeDetail.current=detailKey;
  useEffect(()=>()=>{activeDetail.current='unmounted';},[]);
  const stale=snapshot&&(canonical(job.decision??null)!==canonical(snapshot.decision)||canonical(state)!==canonical(snapshot.state)||canonical(regionBasis)!==canonical(snapshot.regions));
+ const running=snapshot?.photoshop?.status==='running';
+ useEffect(()=>{let active=true;json('/photoshop').then(c=>{if(active)setConnection(c);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[]);
  useEffect(()=>{let active=true;json(`/jobs/${job.id}/validation`).then(s=>{if(active){setSnapshot(s);setReport(s?.report||null);}}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[job.id]);
+ useEffect(()=>{
+  if(!running)return;let active=true,timer:ReturnType<typeof setTimeout>;
+  const poll=async()=>{try{const s=await json(`/jobs/${job.id}/validation/${snapshot.id}`);if(!active)return;setError('');setSnapshot(s);if(s.report)setReport(s.report);if(s.photoshop?.status==='running')timer=setTimeout(poll,1000);}catch(e:any){if(active){setError('读取进度失败，正在重试：'+e.message);timer=setTimeout(poll,2000);}}};
+  timer=setTimeout(poll,500);return()=>{active=false;clearTimeout(timer);};
+ },[job.id,snapshot?.id,running]);
  useEffect(()=>{
   if(!snapshot)return;const controller=new AbortController();
   const load=async(kind:string,set:(v:string)=>void)=>{const blob=await(await request(`/jobs/${job.id}/validation/${snapshot.id}/${kind}`,{signal:controller.signal})).blob();if(!controller.signal.aborted)set(URL.createObjectURL(blob));};
@@ -27,9 +34,8 @@ export function AcrValidation({job,state,disabled,preview}:{job:any;state:any;di
  },[snapshot?.id,report]);
  useEffect(()=>{setDetail('');},[canonical(state),canonical(regionBasis)]);
  async function action(run:()=>Promise<void>){setPending(true);setError('');try{await run();}catch(e:any){setError(e.message);}finally{setPending(false);}}
- async function freeze(){await action(async()=>{const next=await json(`/jobs/${job.id}/validation`,post(state));setSnapshot(next);setReport(null);setAfter('');setHeat('');});}
+ async function generate(){await action(async()=>{const next=await json(`/jobs/${job.id}/validation/render?refresh=${!!report&&!stale}`,post(state));setSnapshot(next);setReport(next.report||null);setBefore('');setAfter('');setHeat('');});}
  async function inspect(){const key=detailKey;await action(async()=>{const blob=await(await request(`/jobs/${job.id}/detail?x=${position.x}&y=${position.y}`,post(state))).blob();if(activeDetail.current===key)setDetail(URL.createObjectURL(blob));});}
- async function compare(file?:File){if(!file||!snapshot)return;await action(async()=>{const form=new FormData();form.append('image',file);const query=new URLSearchParams({assume_srgb:String(assume),acr_version:version,camera_profile:profile});setReport(await json(`/jobs/${job.id}/validation/${snapshot.id}/compare?${query}`,{method:'POST',body:form}));});}
  return <section className="acr-validation" aria-label="ACR 对照验证">
   <h2>高精度预览与 ACR 对照</h2>
   <p className="muted">预览从 16 位 sRGB 解码数据进行浮点处理。局部 100% 使用原尺寸解码，每个图像像素对应一个显示像素。首次查看需要生成缓存。</p>
@@ -39,15 +45,16 @@ export function AcrValidation({job,state,disabled,preview}:{job:any;state:any;di
    {detail&&<div className="pixel-scroll"><img src={detail} alt="原尺寸局部预览"/></div>}
    <p className="tiny muted">质感与颗粒可能随处理分辨率变化；这里用于检查细节，不代表 Adobe 的原尺寸渲染。</p>
   </details>
-  <p>先应用曲线和局部调整草稿，再冻结方案。解压验证包，在 ACR 打开副本、载入同包 XMP，以 sRGB 原始画幅导出成片，然后在此导入。</p>
-  <button className="secondary" disabled={disabled||pending} onClick={freeze}>{pending?'正在处理…':'冻结当前方案'}</button>
-  {snapshot&&<><div className="validation-actions"><span>快照 {snapshot.id.slice(0,8)} · {snapshot.reference_size.join(' × ')}</span><button disabled={pending} onClick={()=>action(async()=>{await downloadValidation(job.id,snapshot.id,'package');})}>保存 ACR 验证包</button></div>
-   {stale&&<p role="status" className="validation-warning">当前方案或选区已变化。下面对照的是冻结快照；需要验证新效果时请重新冻结。</p>}
-   <label className="field-label">实际 ACR 版本<input aria-label="实际 ACR 版本" value={version} onChange={e=>setVersion(e.target.value)} maxLength={100}/></label>
-   <label className="field-label">实际相机配置文件<input aria-label="实际相机配置文件" value={profile} onChange={e=>setProfile(e.target.value)} maxLength={200}/></label>
-   <label className="checkbox"><input type="checkbox" checked={assume} onChange={e=>setAssume(e.target.checked)}/>无 ICC 时，我确认导入成片为 sRGB</label>
-   <label className="field-label">导入此快照的 ACR 实际成片<input aria-label="ACR 实际成片" type="file" accept=".jpg,.jpeg,.png,.tif,.tiff" disabled={pending||disabled} onChange={e=>{compare(e.target.files?.[0]);e.target.value='';}}/></label>
-   {report&&<><p>{report.color_basis}；比较尺寸 {report.comparison_size.join(' × ')}。实际版本：{report.acr_version||'未填写'}；配置文件：{report.camera_profile||'未填写'}。</p>
+  <p>先应用曲线和局部调整草稿，再生成 ACR 实际预览。软件会自动调用本机 Photoshop，渲染原片副本并显示对照结果。</p>
+  {connection&&<p className="muted">{connection.message}</p>}
+  <button className="secondary" disabled={disabled||pending||running||connection?.available===false} onClick={generate}>{running?'Photoshop 正在渲染…':pending?'正在准备…':report&&!stale?'重新生成 ACR 实际预览':'生成 ACR 实际预览'}</button>
+  {connection?.available===false&&<button className="secondary" disabled={pending} onClick={()=>action(async()=>setConnection(await json('/photoshop')))}>重新检测 Photoshop</button>}
+  <p className="tiny muted">首次调用可能启动 Photoshop。联动以 Adobe Standard 为基准；“保持当前”白平衡在原片副本上采用拍摄设置。生成期间请等待 Photoshop 完成处理。</p>
+  {snapshot&&<><div className="validation-actions"><span>快照 {snapshot.id.slice(0,8)} · {snapshot.reference_size.join(' × ')}</span></div>
+   {running&&<p role="status">{snapshot.photoshop.stage}</p>}
+   {snapshot.photoshop?.status==='failed'&&<p role="alert" className="form-error">{snapshot.photoshop.error}</p>}
+   {stale&&<p role="status" className="validation-warning">当前方案或选区已变化。下面对照的是冻结快照；请重新生成 ACR 实际预览以更新效果。</p>}
+   {report&&<><p>{report.color_basis}；比较尺寸 {report.comparison_size.join(' × ')}。实际 ACR 版本：{report.acr_version||'未回传'}；配置文件：{report.camera_profile||'未回传'}。{report.automation&&`由 Photoshop ${report.automation.photoshop_version} 自动生成。`}</p>
     <label className="checkbox"><input type="checkbox" checked={pixel} onChange={e=>setPixel(e.target.checked)}/>以参考图像 100% 查看（可滚动）</label>
     <div className={'validation-compare '+(pixel?'pixel-scroll':'')}><div className="compare" style={pixel?{width:snapshot.reference_size[0],maxWidth:'none'}:{}}>
       {after&&<img src={after} alt="ACR 实际成片对照"/>}<div className="before-layer" style={{clipPath:`inset(0 ${100-split}% 0 0)`}}>{before&&<img src={before} alt="冻结的本地预览"/>}</div>
